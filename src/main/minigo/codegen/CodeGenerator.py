@@ -259,11 +259,11 @@ class CodeGenerator(BaseVisitor,Utils):
                           [i for lst in o['env'] for i in lst]), 
                    None)
         if isinstance(sym.value, Index):
-            func = self.emit.emitWRITEVAR if o['isLeft'] else self.emit.emitREADVAR
+            func = self.emit.emitWRITEVAR if o.get('isLeft', False) else self.emit.emitREADVAR
             return (func(ast.name, sym.mtype, sym.value.value, o['frame']), 
                     sym.mtype)
         else:    
-            func = self.emit.emitPUTSTATIC if o['isLeft'] else self.emit.emitGETSTATIC     
+            func = self.emit.emitPUTSTATIC if o.get('isLeft', False) else self.emit.emitGETSTATIC     
             return (func(f"{self.className}/{sym.name}", sym.mtype, o['frame']), 
                     sym.mtype)
     
@@ -273,16 +273,17 @@ class CodeGenerator(BaseVisitor,Utils):
             and not ast.lhs.name in [i.name for lst in o["env"] for i in lst]
         ):
             return self.visit(VarDecl(ast.lhs.name, None, ast.rhs))
+        env = o.copy()
         if isinstance(ast.lhs, ArrayCell):
-            o['isLeft'] = True
-            lhsCode, lhsType = self.visit(ast.lhs, o)
-            o['isLeft'] = False
-            rhsCode, rhsType = self.visit(ast.rhs, o)
+            env['isLeft'] = True
+            lhsCode, lhsType = self.visit(ast.lhs, env)
+            env['isLeft'] = False
+            rhsCode, rhsType = self.visit(ast.rhs, env)
         else:
-            o['isLeft'] = False
-            rhsCode, rhsType = self.visit(ast.rhs, o)            
-            o['isLeft'] = True
-            lhsCode, lhsType = self.visit(ast.lhs, o)        
+            env['isLeft'] = False
+            rhsCode, rhsType = self.visit(ast.rhs, env)            
+            env['isLeft'] = True
+            lhsCode, lhsType = self.visit(ast.lhs, env)        
         
         # Co-erce
         if isinstance(lhsType, FloatType) and isinstance(rhsType, IntType):
@@ -356,7 +357,53 @@ class CodeGenerator(BaseVisitor,Utils):
         code += "".join([reduceArray(ast.value, i, ["self.emit.emitDUP(o['frame'])"]) 
                          for i in range(len(ast.value))])
         return code, retType
-    
+
+    def visitUnaryOp(self, ast, o):
+        if ast.op in ["+", "-"]:
+            bodyCode, typ = self.visit(ast.body, o)
+            negCode = self.emit.emitNEGOP(typ, o['frame']) if ast.op == "-" else ""
+            return bodyCode + negCode, typ
+        elif ast.op == "!":
+            bodyCode, typ = self.visit(ast.body, o)
+            notCode = self.emit.emitNOT(typ, o['frame'])
+            return bodyCode + notCode, typ
+        
+    def visitBinaryOp(self, ast, o):
+        leftCode, leftType = self.visit(ast.left, o)
+        rightCode, rightType = self.visit(ast.right, o)
+        def validateType(typ):
+            return isinstance(leftType, typ) and isinstance(rightType, typ)
+        retType = None
+        if ast.op in ["+", "-", "*", "/"]:
+            if ast.op in ["+", "-"]:
+                op = self.emit.emitADDOP
+            elif ast.op in ["*", "/"]:
+                op = self.emit.emitMULOP
+            
+            # TODO: Concat string
+            if validateType(IntType) or validateType(FloatType):
+                retType = leftType
+            else: # leftType or rightType is IntType
+                if isinstance(leftType, IntType):
+                    leftCode += self.emit.emitI2F(o['frame'])
+                if isinstance(rightType, IntType):
+                    rightCode += self.emit.emitI2F(o['frame'])
+                retType = FloatType()
+            opCode = op(ast.op, retType, o['frame'])
+        elif ast.op == "%":
+            retType = IntType()
+            opCode = self.emit.emitMOD(o['frame'])
+        elif ast.op in ["==", "!=", "<", ">", "<=", ">="]:
+            retType = BoolType()
+            opCode = self.emit.emitREOP(ast.op, retType, o['frame'])
+        elif ast.op in ["&&", "||"]:
+            retType = BoolType()
+            if ast.op == "&&":
+                opCode = self.emit.emitANDOP(retType, o['frame'])
+            else:
+                opCode = self.emit.emitOROP(retType, o['frame'])
+        return leftCode + rightCode + opCode, retType
+            
     def visitArrayCell(self, ast, o):
         code = ""
         # Code to get the array address
@@ -374,7 +421,7 @@ class CodeGenerator(BaseVisitor,Utils):
                     retType = arrType.eleType
                 else:
                     retType = ArrayType(arrType.dimens[1:], arrType.eleType)
-                if not (o.get('isLeft') and o['isLeft'] == True):
+                if not (o.get('isLeft', False)):
                     code += self.emit.emitALOAD(retType, o['frame'])
                 return code, retType
             else:
@@ -426,32 +473,37 @@ class CodeGenerator(BaseVisitor,Utils):
         return o
     
     def visitForStep(self, ast, o):
-        o['frame'].enterLoop()
-        loopLabel = o['frame'].getNewLabel()
-        continueLabel = o['frame'].getContinueLabel()
-        exitLabel = o['frame'].getBreakLabel()
+        # o['frame'].enterLoop()
+        # loopLabel = o['frame'].getNewLabel()
+        # continueLabel = o['frame'].getContinueLabel()
+        # exitLabel = o['frame'].getBreakLabel()
         
-        # Init code
-        self.visit(ast.init, o)
-        # LOOP (CONTINUE) LABEL
-        self.emit.printout(self.emit.emitLABEL(loopLabel, o['frame']))
-        # Condition code
-        condCode, condType = self.visit(ast.cond, o)
-        self.emit.printout(condCode)
-        # If condition is false, exit the loop
-        self.emit.printout(self.emit.emitIFFALSE(exitLabel, o['frame']))
-        # Body code
-        self.visit(ast.loop, o)
-        # Continue label
-        self.emit.printout(self.emit.emitLABEL(continueLabel, o['frame']))
-        # Update counter code
-        self.visit(ast.update, o)
-        # GOTO loopLabel
-        self.emit.printout(self.emit.emitGOTO(str(loopLabel), o['frame']))
-        # Exit label
-        self.emit.printout(self.emit.emitLABEL(exitLabel, o['frame']))
+        # # Init code
+        # self.visit(ast.init, o)
+        # # LOOP (CONTINUE) LABEL
+        # self.emit.printout(self.emit.emitLABEL(loopLabel, o['frame']))
+        # # Condition code
+        # condCode, condType = self.visit(ast.cond, o)
+        # self.emit.printout(condCode)
+        # # If condition is false, exit the loop
+        # self.emit.printout(self.emit.emitIFFALSE(exitLabel, o['frame']))
+        # # Body code
+        # self.visit(ast.loop, o)
+        # # Continue label
+        # self.emit.printout(self.emit.emitLABEL(continueLabel, o['frame']))
+        # # Update counter code
+        # self.visit(ast.upda, o)
+        # # GOTO loopLabel
+        # self.emit.printout(self.emit.emitGOTO(str(loopLabel), o['frame']))
+        # # Exit label
+        # self.emit.printout(self.emit.emitLABEL(exitLabel, o['frame']))
         
-        o['frame'].exitLoop()
+        # o['frame'].exitLoop()
+        self.visit(Block([ast.init, 
+                          ForBasic(ast.cond, 
+                                   Block(ast.loop.member+[ast.upda]))
+                          ]), 
+                   o)
         return o
     
     def visitForEach(self, ast, o):
