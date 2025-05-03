@@ -222,17 +222,28 @@ class CodeGenerator(BaseVisitor,Utils):
                 self.emit.printout(self.emit.emitWRITEVAR(ast.varName, ast.varType, index, frame))
         return o
     
-    def visitConstDecl(self, ast: ConstDecl, o):
+    def visitConstDecl(self, ast, o):
         # TODO: Declare var as final
         return self.visit(VarDecl(ast.conName, ast.conType, ast.iniExpr), o)
     
+    def visitParamDecl(self, ast: ParamDecl, o):        
+        frame = o['frame']
+        index = frame.getNewIndex()
+        o['env'][0].append(Symbol(ast.parName, ast.parType, Index(index)))
+        self.emit.printout(self.emit.emitVAR(
+            index, ast.parName, ast.parType, frame.getStartLabel(), frame.getEndLabel(), frame))  
+        return o
+    
     def visitFuncCall(self, ast, o):
         sym = next(filter(lambda x: x.name == ast.funName, self.functions), None)
+        # Visit the arguments
         env = o.copy()
         env['isLeft'] = False
+        env['isStmt'] = False   
         argsCode = [self.visit(x, env)[0] for x in ast.args]
-        invokeCode = self.emit.emitINVOKESTATIC(f"{sym.value.value}/{ast.funName}",sym.mtype, env['frame'])
-        if env.get('isStmt', None) and env['isStmt'] == True:
+        # Invoke the function
+        invokeCode = self.emit.emitINVOKESTATIC(f"{sym.value.value}/{ast.funName}", sym.mtype, o['frame'])
+        if o.get('isStmt', False):
             [self.emit.printout(x) for x in argsCode + [invokeCode]]
             return o
         else: # FuncCall is expr
@@ -311,9 +322,7 @@ class CodeGenerator(BaseVisitor,Utils):
         return self.emit.emitPUSHFCONST(ast.value, o['frame']), FloatType()
     
     def visitBooleanLiteral(self, ast, o):
-        if isinstance(ast.value, bool):
-            ast.value = "true" if ast.value else "false"
-        return (self.emit.emitPUSHICONST(ast.value, o['frame']), 
+        return (self.emit.emitPUSHCONST(ast.value, BoolType(), o['frame']), 
                 BoolType())
         
     def visitStringLiteral(self, ast, o):
@@ -367,10 +376,40 @@ class CodeGenerator(BaseVisitor,Utils):
             bodyCode, typ = self.visit(ast.body, o)
             notCode = self.emit.emitNOT(typ, o['frame'])
             return bodyCode + notCode, typ
+      
+    def concatString(self, left, right, o):
+        stringBuilderType = ClassType("java/lang/StringBuilder")
+        code = ""
+        code += self.emit.emitNEW(stringBuilderType, o['frame'])
+        code += self.emit.emitDUP(o['frame'])
+        code += self.emit.emitINVOKESPECIAL(o['frame'], 
+                                            "java/lang/StringBuilder/<init>", 
+                                            MType([], VoidType()))
         
+        code += self.visit(left, o)[0]
+        # invokevirtual java/lang/StringBuilder/append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+        code += self.emit.emitINVOKEVIRTUAL("java/lang/StringBuilder/append", 
+                                            MType([StringType()], stringBuilderType), 
+                                            o['frame'])
+        
+        code += self.visit(right, o)[0]
+        # invokevirtual java/lang/StringBuilder/append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+        code += self.emit.emitINVOKEVIRTUAL("java/lang/StringBuilder/append", 
+                                            MType([StringType()], stringBuilderType), 
+                                            o['frame'])
+        
+        # invokevirtual java/lang/StringBuilder/toString()Ljava/lang/String;
+        code += self.emit.emitINVOKEVIRTUAL("java/lang/StringBuilder/toString",
+                                            MType([], StringType()),
+                                            o['frame'])
+        return code, StringType()
+          
     def visitBinaryOp(self, ast, o):
         leftCode, leftType = self.visit(ast.left, o)
+        if ast.op == "+" and isinstance(leftType, StringType):
+            return self.concatString(ast.left, ast.right, o)
         rightCode, rightType = self.visit(ast.right, o)
+        
         def validateType(typ):
             return isinstance(leftType, typ) and isinstance(rightType, typ)
         retType = None
@@ -399,9 +438,9 @@ class CodeGenerator(BaseVisitor,Utils):
         elif ast.op in ["&&", "||"]:
             retType = BoolType()
             if ast.op == "&&":
-                opCode = self.emit.emitANDOP(retType, o['frame'])
+                opCode = self.emit.emitANDOP(o['frame'])
             else:
-                opCode = self.emit.emitOROP(retType, o['frame'])
+                opCode = self.emit.emitOROP(o['frame'])
         return leftCode + rightCode + opCode, retType
             
     def visitArrayCell(self, ast, o):
@@ -473,37 +512,10 @@ class CodeGenerator(BaseVisitor,Utils):
         return o
     
     def visitForStep(self, ast, o):
-        # o['frame'].enterLoop()
-        # loopLabel = o['frame'].getNewLabel()
-        # continueLabel = o['frame'].getContinueLabel()
-        # exitLabel = o['frame'].getBreakLabel()
-        
-        # # Init code
-        # self.visit(ast.init, o)
-        # # LOOP (CONTINUE) LABEL
-        # self.emit.printout(self.emit.emitLABEL(loopLabel, o['frame']))
-        # # Condition code
-        # condCode, condType = self.visit(ast.cond, o)
-        # self.emit.printout(condCode)
-        # # If condition is false, exit the loop
-        # self.emit.printout(self.emit.emitIFFALSE(exitLabel, o['frame']))
-        # # Body code
-        # self.visit(ast.loop, o)
-        # # Continue label
-        # self.emit.printout(self.emit.emitLABEL(continueLabel, o['frame']))
-        # # Update counter code
-        # self.visit(ast.upda, o)
-        # # GOTO loopLabel
-        # self.emit.printout(self.emit.emitGOTO(str(loopLabel), o['frame']))
-        # # Exit label
-        # self.emit.printout(self.emit.emitLABEL(exitLabel, o['frame']))
-        
-        # o['frame'].exitLoop()
-        self.visit(Block([ast.init, 
-                          ForBasic(ast.cond, 
-                                   Block(ast.loop.member+[ast.upda]))
-                          ]), 
-                   o)
+        self.visit(
+            Block([ast.init, 
+                   ForBasic(ast.cond, Block(ast.loop.member+[ast.upda]))]), 
+            o)
         return o
     
     def visitForEach(self, ast, o):

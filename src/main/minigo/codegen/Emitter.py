@@ -82,8 +82,8 @@ class Emitter():
         if rst == "0.0" or rst == "1.0" or rst == "2.0":
             return self.jvm.emitFCONST(str(rst))
         else:
-            return self.jvm.emitLDC(str(in_))           
-
+            return self.jvm.emitLDC(str(in_))   
+        
     ''' 
     *    generate code to push a constant onto the operand stack.
     *    @param in the lexeme of the constant
@@ -101,6 +101,10 @@ class Emitter():
         elif type(typ) is StringType:
             frame.push()
             return self.jvm.emitLDC(in_)
+        elif type(typ) is BoolType:
+            if isinstance(in_, bool):
+                in_ = "true" if in_ else "false"
+            return self.emitPUSHICONST(in_, frame)
         else:
             raise IllegalOperandException(in_)
 
@@ -170,6 +174,10 @@ class Emitter():
         frame.push()
         if type(inType) is IntType:
             return self.jvm.emitILOAD(index)
+        if type(inType) is FloatType:
+            return self.jvm.emitFLOAD(index)
+        if type(inType) is BoolType:
+            return self.jvm.emitILOAD(index)
         elif type(inType) is cgen.ArrayType or type(inType) is cgen.ClassType or type(inType) is StringType:
             return self.jvm.emitALOAD(index)
         else:
@@ -201,6 +209,10 @@ class Emitter():
         frame.pop()
 
         if type(inType) is IntType:
+            return self.jvm.emitISTORE(index)
+        if type(inType) is FloatType:
+            return self.jvm.emitFSTORE(index)
+        if type(inType) is BoolType:
             return self.jvm.emitISTORE(index)
         elif type(inType) is cgen.ArrayType or type(inType) is cgen.ClassType or type(inType) is StringType:
             return self.jvm.emitASTORE(index)
@@ -609,8 +621,13 @@ class Emitter():
         ):
             frame.pop()
             return self.jvm.emitARETURN()
+        if type(in_) is BoolType:
+            frame.pop()
+            return self.jvm.emitIRETURN()
         if type(in_) is VoidType:
             return self.jvm.emitRETURN()
+        # TODO: ClassType and ArrayType
+        raise IllegalOperandException(in_)
 
     ''' generate code that represents a label	
     *   @param label the label
@@ -661,6 +678,15 @@ class Emitter():
         file = open(self.filename, "w")
         file.write(''.join(self.buff))
         file.close()
+        
+    def emitNEW(self, in_, frame):
+        #in_: Type
+        #frame: Frame
+
+        frame.push()
+        if isinstance(in_, cgen.ClassType):
+            return self.jvm.emitNEW(self.getFullType(in_))
+        raise IllegalOperandException(in_)
         
     def emitNEWARRAY(self, ele_typ, frame):
         """
