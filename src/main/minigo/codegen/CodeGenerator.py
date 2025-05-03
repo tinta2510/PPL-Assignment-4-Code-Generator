@@ -406,8 +406,6 @@ class CodeGenerator(BaseVisitor,Utils):
           
     def visitBinaryOp(self, ast, o):
         leftCode, leftType = self.visit(ast.left, o)
-        if ast.op == "+" and isinstance(leftType, StringType):
-            return self.concatString(ast.left, ast.right, o)
         rightCode, rightType = self.visit(ast.right, o)
         
         def validateType(typ):
@@ -419,15 +417,14 @@ class CodeGenerator(BaseVisitor,Utils):
             elif ast.op in ["*", "/"]:
                 op = self.emit.emitMULOP
             
-            # TODO: Concat string
-            if validateType(IntType) or validateType(FloatType):
-                retType = leftType
-            else: # leftType or rightType is IntType
+            if type(leftType) != type(rightType):
                 if isinstance(leftType, IntType):
                     leftCode += self.emit.emitI2F(o['frame'])
                 if isinstance(rightType, IntType):
                     rightCode += self.emit.emitI2F(o['frame'])
                 retType = FloatType()
+            else:
+                retType = leftType
             opCode = op(ast.op, retType, o['frame'])
         elif ast.op == "%":
             retType = IntType()

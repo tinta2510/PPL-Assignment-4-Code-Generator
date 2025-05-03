@@ -373,6 +373,11 @@ class Emitter():
         if lexeme == "+":
             if type(in_) is IntType:
                 return self.jvm.emitIADD()
+            elif type(in_) is StringType:
+                frame.push() # Balance with the frame.pop()
+                return self.emitINVOKEVIRTUAL("java/lang/String/concat",
+                                              MType([StringType()], StringType()),
+                                              frame)
             else:
                 return self.jvm.emitFADD()
         else:
