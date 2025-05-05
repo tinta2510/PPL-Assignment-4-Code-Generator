@@ -247,6 +247,11 @@ class MachineCode(ABC):
         #typ: String
         pass
     @abstractmethod
+    def emitINVOKEINTERFACE(self, lexeme, typ):
+        #lexeme: String
+        #typ: String
+        pass
+    @abstractmethod
     def emitI(self):
         pass
     @abstractmethod
@@ -292,7 +297,15 @@ class MachineCode(ABC):
         #lexeme: String
         pass
     @abstractmethod
+    def emitINTERFACE(self, lexeme):
+        #lexeme: String
+        pass
+    @abstractmethod
     def emitSUPER(self, lexeme):
+        #lexeme: String
+        pass
+    @abstractmethod
+    def emitIMPLEMENTS(self, lexeme):
         #lexeme: String
         pass
     @abstractmethod
@@ -317,6 +330,9 @@ class MachineCode(ABC):
         pass
     @abstractmethod
     def emitARETURN(self):
+        pass
+    @abstractmethod
+    def emitACONST_NULL(self):
         pass
 
 
@@ -483,7 +499,7 @@ class JasminCode(MachineCode):
         return JasminCode.INDENT + "ior" + JasminCode.END
     
     def emitIREM(self):
-        return JasminCode.INDENT + "irem" + JasminCode.END #!!!???
+        return JasminCode.INDENT + "irem" + JasminCode.END
     
     def emitIFACMPEQ(self, label):
         #label: Int
@@ -547,7 +563,7 @@ class JasminCode(MachineCode):
     
     def emitGOTO(self, label):
         #label: Int
-        return JasminCode.INDENT + "goto Label" + str(label) + JasminCode.END #!!!???
+        return JasminCode.INDENT + "goto Label" + str(label) + JasminCode.END
     
     def emitINEG(self):
         return JasminCode.INDENT + "ineg" + JasminCode.END
@@ -582,7 +598,7 @@ class JasminCode(MachineCode):
     def emitMULTIANEWARRAY(self, typ, dimensions):
         #typ: String
         #dimensions: Int
-        return JasminCode.INDENT + "multianewarray " + typ + " " + dimensions + JasminCode.END
+        return JasminCode.INDENT + "multianewarray " + typ + " " + str(dimensions) + JasminCode.END
     
     def emitINVOKESTATIC(self, lexeme, typ):
         #lexeme: String
@@ -603,6 +619,12 @@ class JasminCode(MachineCode):
         #typ: String
         return JasminCode.INDENT + "invokevirtual " + lexeme + typ + JasminCode.END
     
+    def emitINVOKEINTERFACE(self, lexeme, typ, num):
+        #lexeme: String
+        #typ: String
+        #num: Int
+        return JasminCode.INDENT + "invokeinterface " + lexeme + typ + " " + str(num) + JasminCode.END
+ 
     def emitI(self):
         return JasminCode.INDENT + "i" + JasminCode.END
     
@@ -631,19 +653,20 @@ class JasminCode(MachineCode):
         #toLabel: Int
         return ".var " + str(in_) + " is " + varName + " " + inType + " from Label" + str(fromLabel) + " to Label" + str(toLabel) + JasminCode.END 
     
-    def emitMETHOD(self, lexeme, typ, isStatic):
+    def emitMETHOD(self, lexeme, typ, isStatic, isAbstract=False):
         #lexeme: String
         #typ: String
-        #isStaic: Boolean
-        if isStatic:
-            return JasminCode.END + ".method public static " + lexeme + typ + JasminCode.END
-        else:
-            return JasminCode.END + ".method public " + lexeme + typ + JasminCode.END
+        #isStatic: Boolean
+        #isAbstract: Boolean
+        return JasminCode.END + ".method public "+ ("abstract " if isAbstract else "")+ ("static " if isStatic else "")+ lexeme + typ + JasminCode.END
+        
     
     def emitENDMETHOD(self):
         return ".end method" + JasminCode.END
         
-    
+    def emitIMPLEMENTS(self, lexeme):
+        #lexeme: String
+        return ".implements " + lexeme + JasminCode.END
     def emitSOURCE(self, lexeme):
         #lexeme: String
         return ".source " + lexeme + JasminCode.END
@@ -652,11 +675,15 @@ class JasminCode(MachineCode):
         #lexeme: String
         return ".class " + lexeme + JasminCode.END
     
+    def emitINTERFACE(self, lexeme):
+        #lexeme: String
+        return ".interface " + lexeme + JasminCode.END
+    
     def emitSUPER(self, lexeme):
         #lexeme: String
         return ".super " + lexeme + JasminCode.END
     
-    def emitSTATICFIELD(self, lexeme, typ, isFinal,value):
+    def emitSTATICFIELD(self, lexeme, typ, isFinal,value=None):
         #lexeme: String
         #typ: String
         #isFinal: Boolean
@@ -665,13 +692,15 @@ class JasminCode(MachineCode):
         else:
             return ".field static " + lexeme + " " + typ + ((" = " + value) if value else "") + JasminCode.END
     
-    def emitINSTANCEFIELD(self, lexeme, typ,isFinal,value):
+    def emitINSTANCEFIELD(self, lexeme, typ,isFinal,value=None):
         #lexeme: String
         #typ: String
         if isFinal:
             return ".field final " + lexeme + " " + typ + ((" = " + value) if value else "") + JasminCode.END
         else:
             return ".field " + lexeme + " " + typ + ((" = " + value) if value else "") +JasminCode.END
+
+    
     
     def emitRETURN(self):
         return JasminCode.INDENT + "return" + JasminCode.END
@@ -685,4 +714,5 @@ class JasminCode(MachineCode):
     def emitARETURN(self):
         return JasminCode.INDENT + "areturn" + JasminCode.END
     
-    
+    def emitACONST_NULL(self):
+        return JasminCode.INDENT + "aconst_null" + JasminCode.END
