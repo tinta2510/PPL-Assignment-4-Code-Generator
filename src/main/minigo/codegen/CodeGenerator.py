@@ -75,12 +75,12 @@ class CodeGenerator(BaseVisitor,Utils):
          
         # Create "this" variable in the <init> method
         self.emit.printout(self.emit.emitVAR(
-            frame.getNewIndex(), "this", ClassType(self.className), 
+            frame.getNewIndex(), "this", Id(self.className), 
             frame.getStartLabel(), frame.getEndLabel(), frame))  
         
         self.emit.printout(self.emit.emitLABEL(frame.getStartLabel(), frame))
         
-        self.emit.printout(self.emit.emitREADVAR("this", ClassType(self.className), 0, frame))  
+        self.emit.printout(self.emit.emitREADVAR("this", Id(self.className), 0, frame))  
         self.emit.printout(self.emit.emitINVOKESPECIAL(frame))  
     
         self.emit.printout(self.emit.emitLABEL(frame.getEndLabel(), frame))
@@ -167,17 +167,16 @@ class CodeGenerator(BaseVisitor,Utils):
         elif isinstance(typ, StringType):
             return StringLiteral('""')
         elif isinstance(typ, ArrayType): #??? Init Array
-            def init_list(shape, value=0):
-                if len(shape) == 0:
-                    return value
-                return [init_list(shape[1:], value) for _ in range(int(shape[0]))]
             return ArrayLiteral(
                 typ.dimens,
                 typ.eleType,
-                init_list(list(map(lambda x: x.value, typ.dimens)), 
-                          self._initValue(typ.eleType)) #???
+                []
+                # init_list(list(map(lambda x: x.value, typ.dimens)), 
+                #           self._initValue(typ.eleType)) #???
             )
-        # TODO: StructType
+        elif isinstance(typ, (ClassType, Id)):
+            return StructLiteral(typ.name, [])
+        return None
     
     def visitFuncDecl(self, ast, o):
         frame = Frame(ast.name, ast.retType)
@@ -226,10 +225,7 @@ class CodeGenerator(BaseVisitor,Utils):
             env['frame'] = Frame('virtual_frame', VoidType()) 
             varInitCode, varInitType = self.visit(ast.varInit, env)
             ast.varType = varInitType
-        # else: #???
-        #     if isinstance(ast.varType, Id):
-        #         ast.varType = ClassType(ast.varType.name)
-            
+
         if 'frame' not in o: # global var
             o['env'][0].append(Symbol(ast.varName, ast.varType, CName(self.className)))
             self.emit.printout(self.emit.emitATTRIBUTE(
@@ -238,7 +234,7 @@ class CodeGenerator(BaseVisitor,Utils):
             frame = o['frame']
             index = frame.getNewIndex()
             o['env'][0].append(Symbol(ast.varName, ast.varType, Index(index)))
-            varInitCode, varInitType = self.visit(ast.varInit, o)
+            varInitCode, varInitType = self.visit(ast.varInit, o) if ast.varInit else (None, None)
             
             self.emit.printout(self.emit.emitVAR(
                 index, ast.varName, ast.varType, frame.getStartLabel(), frame.getEndLabel(), frame))  
@@ -292,7 +288,7 @@ class CodeGenerator(BaseVisitor,Utils):
         env['env'] = [[]] + env['env']
         ## .var
         self.emit.printout(self.emit.emitVAR(
-            frame.getNewIndex(), "this", ClassType(self.curr_struct.name),
+            frame.getNewIndex(), "this", Id(self.curr_struct.name),
             frame.getStartLabel(), frame.getEndLabel(), frame))
         env = reduce(lambda acc,e: self.visit(e,acc), ast.fun.params, env)
         ## Code for the body of the method
@@ -300,7 +296,7 @@ class CodeGenerator(BaseVisitor,Utils):
         ### Case when the method is a constructor
         if ast.receiver is None:
             self.emit.printout(self.emit.emitREADVAR(
-                "this", ClassType(self.curr_struct.name), 0, frame))
+                "this", Id(self.curr_struct.name), 0, frame))
             self.emit.printout(self.emit.emitINVOKESPECIAL(frame))
         self.visit(ast.fun.body, env)
         if isinstance(ast.fun.retType, VoidType):
@@ -315,7 +311,7 @@ class CodeGenerator(BaseVisitor,Utils):
         frame = Frame(ast.name, ast.retType)
         self.emit.printout(self.emit.emitMETHOD(
             ast.name, MType(ast.params, ast.retType), False, True, frame))
-        self.emit.printout(self.emit.emitENDMETHOD(frame))
+        self.emit.printout(self.emit.emitENDMETHOD(frame, True))
         return o
     # --- Visit Declarations - END ---
     
@@ -341,8 +337,8 @@ class CodeGenerator(BaseVisitor,Utils):
                           [i for lst in o['env'] for i in lst]), 
                    None)
         if sym is None: # "this" variable
-            return (self.emit.emitREADVAR("this", ClassType(""), 0, o['frame']), 
-                    ClassType(self.curr_struct.name))
+            return (self.emit.emitREADVAR("this", Id(""), 0, o['frame']), 
+                    Id(self.curr_struct.name))
         if isinstance(sym.value, Index):
             func = self.emit.emitWRITEVAR if o.get('isLeft', False) else self.emit.emitREADVAR
             return (func(ast.name, sym.mtype, sym.value.value, o['frame']), 
@@ -421,8 +417,10 @@ class CodeGenerator(BaseVisitor,Utils):
                 arrType = ArrayType(arrType.dimens[1:], arrType.eleType)
                 
     def visitFieldAccess(self, ast, o):
-        # receiverClass is ClassType object
-        receiverCode, receiverClass = self.visit(ast.receiver, o) 
+        # receiverClass is Id object
+        env = o.copy()
+        env['isLeft'] = False
+        receiverCode, receiverClass = self.visit(ast.receiver, env) 
         # receiverType is StructType object
         receiverType = self.lookup(receiverClass.name, self.structs, lambda x: x.name)
         # elements:List[Tuple[str,Type]] in StructType
@@ -437,7 +435,7 @@ class CodeGenerator(BaseVisitor,Utils):
         return receiverCode + swapCode +  fieldCode, fieldType
     
     def visitMethCall(self, ast, o):
-        # receiverClass is ClassType object
+        # receiverClass is Id object
         receiverCode, receiverClass = self.visit(ast.receiver, o) 
         # receiverType is StructType/InterfaceType object
         receiverType = self.lookup(receiverClass.name, self.structs + self.interfaces, 
@@ -520,22 +518,23 @@ class CodeGenerator(BaseVisitor,Utils):
         return code, retType
     
     def visitStructLiteral(self, ast, o):
-        code = self.emit.emitNEW(ClassType(ast.name), o['frame'])
+        code = self.emit.emitNEW(Id(ast.name), o['frame'])
         code += self.emit.emitDUP(o['frame'])
 
         env = o.copy()
         env['isLeft'] = False
         env['isStmt'] = False
         # Visit the expression of elements of the struct literal
+        # TODO: Initialize non-initialized elements
         visitedElements = [self.visit(ele[1], env) for ele in ast.elements]
         code += "".join([ele[0] for ele in visitedElements])
         code += self.emit.emitINVOKESPECIAL(
             o['frame'], f"{ast.name}/<init>", 
             MType([ele[1] for ele in visitedElements], VoidType()))
-        return code, ClassType(ast.name)
+        return code, Id(ast.name)
     
     def visitNilLiteral(self, ast, o):
-        return self.emit.emitACONST_NULL(o['frame']), ClassType("")
+        return self.emit.emitACONST_NULL(o['frame']), Id("")
     # -- Visit Literals - END ---
                 
     # --- visit Statements - START ---
@@ -717,8 +716,7 @@ class CodeGenerator(BaseVisitor,Utils):
         # .method
         ## Method constructor with parameter
         self.visit(
-            MethodDecl(None, 
-                       None, 
+            MethodDecl(None, None, 
                        FuncDecl("<init>", 
                                 [ParamDecl(ele[0], ele[1]) for ele in ast.elements],
                                 VoidType(), 
@@ -728,15 +726,17 @@ class CodeGenerator(BaseVisitor,Utils):
             o)
         ## Method constructor without parameter
         self.visit(
-            MethodDecl(None, 
-                       None, 
+            MethodDecl(None, None, 
                        FuncDecl("<init>", [], VoidType(), Block([]))), 
             o)
         
         ## Method declarations
         [self.visit(meth_decl, o) for meth_decl in ast.methods]
+        
+        self.emit.printout(self.emit.emitEPILOG())
     
     def visitInterfaceType(self, ast, o):
         self.emit.printout(self.emit.emitINTERFACE(ast.name, "java.lang.Object"))
         [self.visit(prototype, o) for prototype in ast.methods]
+        self.emit.printout(self.emit.emitEPILOG())
     # -- visit Types - END ---

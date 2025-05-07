@@ -538,12 +538,13 @@ class Emitter():
 
     '''   generate the end directive for a function.
     '''
-    def emitENDMETHOD(self, frame):
+    def emitENDMETHOD(self, frame, isAbstract=False):
         #frame: Frame
 
         buffer = list()
-        buffer.append(self.jvm.emitLIMITSTACK(frame.getMaxOpStackSize()))
-        buffer.append(self.jvm.emitLIMITLOCAL(frame.getMaxIndex()))
+        if not isAbstract:
+            buffer.append(self.jvm.emitLIMITSTACK(frame.getMaxOpStackSize()))
+            buffer.append(self.jvm.emitLIMITLOCAL(frame.getMaxIndex()))
         buffer.append(self.jvm.emitENDMETHOD())
         return ''.join(buffer)
 
@@ -697,6 +698,7 @@ class Emitter():
         #parent: String
         
         result = list()
+        result.append(self.jvm.emitSOURCE(name + ".java"))
         result.append(self.jvm.emitCLASS("public interface abstract " + name))
         result.append(self.jvm.emitSUPER("java/land/Object" if parent == "" else parent))
         return ''.join(result)
