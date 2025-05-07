@@ -4,6 +4,7 @@ testcases/
 .antlr/
 .vscode/
 expect.txt
+src/*.class
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -98,9 +98,11 @@ class CodeGenerator(BaseVisitor,Utils):
         self.emit.printout(self.emit.emitLABEL(frame.getStartLabel(), frame))
         
         o['frame'] = frame
-        self.visit(Block([Assign(Id(item.varName), item.varInit) 
-                          for item in ast.decl if isinstance(item, VarDecl) and item.varInit]),
-                   o)
+        self.visit(Block(
+            [Assign(Id(item.varName), item.varInit) 
+                for item in ast.decl if isinstance(item, VarDecl) and item.varInit]
+            + [Assign(Id(item.conName), item.iniExpr)
+                for item in ast.decl if isinstance(item, ConstDecl)]), o)
         
         self.emit.printout(self.emit.emitLABEL(frame.getEndLabel(), frame))
         
@@ -140,7 +142,7 @@ class CodeGenerator(BaseVisitor,Utils):
         # Body of the program
         env = reduce(
             lambda acc, ele: self.visit(ele, acc), 
-            list(filter(lambda x: isinstance(x, VarDecl), ast.decl))
+            list(filter(lambda x: isinstance(x, (VarDecl, ConstDecl)), ast.decl))
                 + list(filter(lambda x: isinstance(x, FuncDecl), ast.decl)), 
             env)
         self.emitObjectInit()
@@ -542,7 +544,7 @@ class CodeGenerator(BaseVisitor,Utils):
         if (isinstance(ast.lhs, Id) 
             and not ast.lhs.name in [i.name for lst in o["env"] for i in lst]
         ):
-            return self.visit(VarDecl(ast.lhs.name, None, ast.rhs))
+            return self.visit(VarDecl(ast.lhs.name, None, ast.rhs), o)
         env = o.copy()
         if isinstance(ast.lhs, ArrayCell):
             env['isLeft'] = True

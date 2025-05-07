@@ -924,3 +924,211 @@ func main() {
     }
         """
         self.assertTrue(TestCodeGen.test(input, "Anna\n19\nBill\n21\n", inspect.stack()[0].function))
+
+    def test_173(self):
+        input = """
+var prefix string;
+
+type Person struct {
+    name string;
+    age int;
+}
+
+func getGreeting(name string) string {
+    return prefix + name;
+}
+
+func (p Person) greet() string {
+    return getGreeting(p.name);
+}
+
+func main() {
+    var votien Person = Person{name: "Votien", age: 19};
+    prefix := "Hello, my name is ";
+    var msg string = votien.greet();
+    putStringLn(msg);
+}
+        """
+        self.assertTrue(TestCodeGen.test(input, "Hello, my name is Votien\n", inspect.stack()[0].function))
+    
+    def test_176(self):
+        input = """
+type Course interface {print(a [2] int);}
+type PPL3 struct {number int;}
+func (p PPL3) print(a [2] int) {putInt(a[0]);}
+
+func main(){
+    var a PPL3 = PPL3 {number: 10}
+    a.print([2] int {10, 2})
+}
+        """
+        self.assertTrue(TestCodeGen.test(input, "10", inspect.stack()[0].function))
+
+    def test_177(self):
+        input = """
+type PPL2 struct {number [1][1][1]int;}
+type PPL3 struct {ppl2 PPL2;}
+
+
+func main(){
+    var a [2][2]PPL3 
+    a[0][1] := PPL3 {ppl2: PPL2 {number: [1][1][1]int{{{10}}} }}
+    putInt(a[0][1].ppl2.number[0][0][0])
+}
+        """
+        self.assertTrue(TestCodeGen.test(input, "10", inspect.stack()[0].function))  
+
+    def test_178(self):
+        input = """
+        type Student struct {
+            name string;
+            score int;
+        }
+        
+        func sortStudents(students [3]Student, n int) {
+            for i := 0; i < n - 1; i += 1 {
+                for j := 0; j < n - i - 1; j += 1 {
+                    if (students[j].score > students[j + 1].score) {
+                        var temp Student = students[j];
+                        students[j] := students[j + 1];
+                        students[j + 1] := temp;
+                    }
+                }
+            }
+        }
+        
+        func main(){
+            var students = [3] Student {Student{name: "John", score: 85}, Student{name: "Alice", score: 92}, Student{name: "Bob", score: 78}};
+            sortStudents(students, 3);
+            for i := 0; i < 3; i += 1 {
+                putString(students[i].name + " ");
+                putInt(students[i].score);
+                putLn();
+            }
+        }
+        """
+        self.assertTrue(TestCodeGen.test(input, "Bob 78\nJohn 85\nAlice 92\n", inspect.stack()[0].function))
+
+    def test_182(self):
+        input = """
+        const MAX = 5;
+        
+        func bfs(graph [MAX][MAX]int, start int){
+            var visited [MAX] boolean;
+            var queue [MAX] int;
+            var front = 0;
+            var rear = 0;
+            visited[start] := true;
+            queue[rear] := start;
+            rear += 1;
+            
+            for front < rear {
+                var u = queue[front]
+                front += 1;
+                putInt(u)
+                putString(" ")
+                for v := 0; v < MAX; v += 1{
+                    if (graph[u][v] == 1 && !visited[v]){
+                        visited[v] := true;
+                        queue[rear] := v;
+                        rear += 1;
+                    }
+                }   
+            }
+        }
+        
+        func main(){
+            var graph = [MAX][MAX] int {{0, 1, 0, 0, 0}, {1, 0, 1, 0, 0}, {0, 1, 0, 1, 0}, {0, 0, 1, 0, 1}, {0, 0, 0, 1, 0}};
+            bfs(graph, 0);
+        }
+        """
+        self.assertTrue(TestCodeGen.test(input, "0 1 2 3 4 ", inspect.stack()[0].function)) 
+
+    def test_183(self):
+        input = """
+        const MAX = 10;
+        
+        func generateBinary(arr [MAX]int, n int, index int){
+            if (index == n) {
+                for i := 0; i < n; i += 1 {
+                    putInt(arr[i]);
+                }
+                putLn();
+            } else {
+                arr[index] := 0;
+                generateBinary(arr, n, index + 1);
+                arr[index] := 1;
+                generateBinary(arr, n, index + 1);
+            }
+        }
+        
+        func main() {
+            var n = 3;
+            var arr [MAX] int;
+            putString("All binary strings of length = ")
+            putInt(n)
+            putLn()
+            generateBinary(arr, n, 0);
+        }
+        """
+        self.assertTrue(TestCodeGen.test(input, """All binary strings of length = 3
+000
+001
+010
+011
+100
+101
+110
+111
+""", inspect.stack()[0].function))
+         
+    def test_186(self):
+            input = """
+            type PPL2 struct {
+                number int;
+                str string;
+            }
+            type PPL3 struct {
+                a PPL2;
+            } 
+            
+            func (p PPL3) returnPPL2() PPL2 {
+                return p.a;
+            }
+            
+            func main() {
+                var c = PPL3 {a: PPL2 {number: 10, str: "Hello"}}
+                var d = c.returnPPL2();
+                putInt(d.number)
+            }
+            """
+            self.assertTrue(TestCodeGen.test(input, """10""", inspect.stack()[0].function))
+                
+    def test_187(self):
+            input = """
+            
+            type PPL interface{
+                returnPPL2() PPL2;
+            };
+            
+            type PPL2 struct {
+                number int;
+                str string;
+            };
+            
+            type PPL3 struct {
+                a PPL2;
+            } 
+            
+            func (p PPL3) returnPPL2() PPL2 {
+                return p.a;
+            }
+            
+            func main() {
+                var c = PPL3 {a: PPL2 {number: 10, str: "Hello"}}
+                var e PPL = c
+                var d = e.returnPPL2();
+                putInt(d.number)
+            }
+            """
+            self.assertTrue(TestCodeGen.test(input, """10""", inspect.stack()[0].function))
