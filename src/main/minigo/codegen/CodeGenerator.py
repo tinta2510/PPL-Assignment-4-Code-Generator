@@ -13,7 +13,6 @@ from StaticError import *
 from Emitter import Emitter
 from Frame import Frame
 
-
 class Val(ABC):
     pass
 
@@ -41,27 +40,6 @@ class CodeGenerator(BaseVisitor,Utils):
         self.astTree = None
         self.path = None
         self.emit = None
-        
-    def initValue(self, typ):
-        if isinstance(typ, IntType):
-            return IntLiteral(0)
-        elif isinstance(typ, FloatType):
-            return FloatLiteral(0.0)
-        elif isinstance(typ, BoolType):
-            return BooleanLiteral(True)
-        elif isinstance(typ, StringType):
-            return StringLiteral('""')
-        elif isinstance(typ, ArrayType):
-            def init_list(shape, value=0):
-                if len(shape) == 0:
-                    return value
-                return [init_list(shape[1:], value) for _ in range(int(shape[0]))]
-            return ArrayLiteral(
-                typ.dimens,
-                typ.eleType,
-                init_list(list(map(lambda x: x.value, typ.dimens)), 
-                          self.initValue(typ.eleType)) #???
-            )
     
     def init(self):
         mem = [
@@ -92,7 +70,7 @@ class CodeGenerator(BaseVisitor,Utils):
     def emitObjectInit(self):
         frame = Frame("<init>", VoidType())  
         self.emit.printout(self.emit.emitMETHOD(
-            "<init>", MType([], VoidType()), False, frame))  
+            "<init>", MType([], VoidType()), False, False, frame))  
         frame.enterScope(True) 
          
         # Create "this" variable in the <init> method
@@ -114,12 +92,11 @@ class CodeGenerator(BaseVisitor,Utils):
     def emitObjectClassInit(self,ast, o):
         frame = Frame("<clinit>", VoidType())  
         self.emit.printout(self.emit.emitMETHOD(
-            "<clinit>", MType([], VoidType()), False, frame))
+            "<clinit>", MType([], VoidType()), False, False, frame))
         frame.enterScope(True)
         
         self.emit.printout(self.emit.emitLABEL(frame.getStartLabel(), frame))
         
-        #TODO: Initialize global/static vars  #???
         o['frame'] = frame
         self.visit(Block([Assign(Id(item.varName), item.varInit) 
                           for item in ast.decl if isinstance(item, VarDecl) and item.varInit]),
@@ -131,7 +108,7 @@ class CodeGenerator(BaseVisitor,Utils):
         self.emit.printout(self.emit.emitENDMETHOD(frame))
         frame.exitScope()
         
-
+    # --- Visit Declarations - START ---
     def visitProgram(self, ast, c):
         """
         Args:
@@ -143,6 +120,20 @@ class CodeGenerator(BaseVisitor,Utils):
                                 decl.retType), 
                         CName(self.className)
                     ) for decl in filter(lambda x: isinstance(x, FuncDecl), ast.decl)])
+        self.structs = list(filter(lambda x: isinstance(x, StructType), ast.decl))
+        self.interfaces = list(filter(lambda x: isinstance(x, InterfaceType), ast.decl))
+        def addMethodDecl(methodDecl):
+            """
+            Add method declaration to the struct type
+            """
+            receiverType = self.lookup(methodDecl.recType.name, 
+                                       self.structs, 
+                                       lambda x: x.name)
+            # Add Names of Methods to StructType
+            receiverType.methods = receiverType.methods + [methodDecl]
+        [addMethodDecl(methodDecl) 
+         for methodDecl in filter(lambda x: isinstance(x, MethodDecl), ast.decl)]
+        
         env = {}
         env['env'] = [c]
         self.emit.printout(self.emit.emitPROLOG(self.className, "java.lang.Object"))
@@ -156,8 +147,38 @@ class CodeGenerator(BaseVisitor,Utils):
         self.emitObjectClassInit(ast, env)
         
         self.emit.printout(self.emit.emitEPILOG())
+        
+        # Create Jasmin file of structs and interfaces
+        self.curr_struct = None
+        def visitType(typ):
+            self.curr_struct = typ
+            self.emit = Emitter(self.path + "/" + typ.name + ".j") 
+            self.visit(typ, {'env': env['env']})
+        [visitType(typ) for typ in self.interfaces + self.structs]
         return env
-
+    
+    def _initValue(self, typ):
+        if isinstance(typ, IntType):
+            return IntLiteral(0)
+        elif isinstance(typ, FloatType):
+            return FloatLiteral(0.0)
+        elif isinstance(typ, BoolType):
+            return BooleanLiteral(True)
+        elif isinstance(typ, StringType):
+            return StringLiteral('""')
+        elif isinstance(typ, ArrayType): #??? Init Array
+            def init_list(shape, value=0):
+                if len(shape) == 0:
+                    return value
+                return [init_list(shape[1:], value) for _ in range(int(shape[0]))]
+            return ArrayLiteral(
+                typ.dimens,
+                typ.eleType,
+                init_list(list(map(lambda x: x.value, typ.dimens)), 
+                          self._initValue(typ.eleType)) #???
+            )
+        # TODO: StructType
+    
     def visitFuncDecl(self, ast, o):
         frame = Frame(ast.name, ast.retType)
         isMain = ast.name == "main"
@@ -170,30 +191,33 @@ class CodeGenerator(BaseVisitor,Utils):
         
         env = o.copy()
         env['frame'] = frame
-        self.emit.printout(self.emit.emitMETHOD(ast.name, mtype, True, frame))
+        self.emit.printout(self.emit.emitMETHOD(
+            ast.name, mtype, True, False, frame))
         frame.enterScope(True)
-        self.emit.printout(self.emit.emitLABEL(frame.getStartLabel(), frame))
+        
         # Body of the method
         env['env'] = [[]] + env['env'] # Scope for parameters
+        ## .var directive for parameters
         if isMain:
-            self.emit.printout(
-                self.emit.emitVAR(
-                    frame.getNewIndex(), "args", ArrayType([None],StringType()), 
-                    frame.getStartLabel(), frame.getEndLabel(), frame))
+            self.emit.printout(self.emit.emitVAR(
+                frame.getNewIndex(), "args", ArrayType([None],StringType()), 
+                frame.getStartLabel(), frame.getEndLabel(), frame))
         else:
             env = reduce(lambda acc,e: self.visit(e,acc), ast.params, env)
-        self.visit(ast.body, env)
-        
-        self.emit.printout(self.emit.emitLABEL(frame.getEndLabel(), frame))
+        ## Code for the body of the method
+        self.emit.printout(self.emit.emitLABEL(frame.getStartLabel(), frame))
+        self.visit(ast.body, env)        
         if isinstance(ast.retType, VoidType):
             self.emit.printout(self.emit.emitRETURN(VoidType(), frame)) 
+        self.emit.printout(self.emit.emitLABEL(frame.getEndLabel(), frame))
+
         self.emit.printout(self.emit.emitENDMETHOD(frame))
         frame.exitScope()
         return o
     
     def visitVarDecl(self, ast, o):
         if not ast.varInit:
-            ast.varInit = self.initValue(ast.varType)
+            ast.varInit = self._initValue(ast.varType)
         
         # get rhs type
         env = o.copy()
@@ -202,6 +226,9 @@ class CodeGenerator(BaseVisitor,Utils):
             env['frame'] = Frame('virtual_frame', VoidType()) 
             varInitCode, varInitType = self.visit(ast.varInit, env)
             ast.varType = varInitType
+        # else: #???
+        #     if isinstance(ast.varType, Id):
+        #         ast.varType = ClassType(ast.varType.name)
             
         if 'frame' not in o: # global var
             o['env'][0].append(Symbol(ast.varName, ast.varType, CName(self.className)))
@@ -223,7 +250,6 @@ class CodeGenerator(BaseVisitor,Utils):
         return o
     
     def visitConstDecl(self, ast, o):
-        # TODO: Declare var as final
         return self.visit(VarDecl(ast.conName, ast.conType, ast.iniExpr), o)
     
     def visitParamDecl(self, ast: ParamDecl, o):        
@@ -234,6 +260,66 @@ class CodeGenerator(BaseVisitor,Utils):
             index, ast.parName, ast.parType, frame.getStartLabel(), frame.getEndLabel(), frame))  
         return o
     
+    def visitBlock(self, ast, o):
+        env = o.copy()
+        env['env'] = [[]] + env['env']
+        env['frame'].enterScope(False)
+        self.emit.printout(self.emit.emitLABEL(env['frame'].getStartLabel(), env['frame']))
+        def visitStmt(stmt):
+            if isinstance(stmt, (FuncCall, MethCall)):
+                env['isStmt'] = True
+            else:
+                env['isStmt'] = False
+            self.visit(stmt, env)
+        [visitStmt(stmt) for stmt in ast.member]
+        self.emit.printout(self.emit.emitLABEL(env['frame'].getEndLabel(), env['frame']))
+        env['frame'].exitScope()
+        return o
+    
+    def visitMethodDecl(self, ast, o):
+        # Create frame for the method
+        frame = Frame(ast.fun.name, ast.fun.retType)
+        env = o.copy()
+        env['frame'] = frame
+        # Jasmin code for the method
+        mtype = MType(
+            [x.parType for x in ast.fun.params], ast.fun.retType)
+        self.emit.printout(self.emit.emitMETHOD(
+            ast.fun.name, mtype, False, False, frame))
+        frame.enterScope(True)
+        
+        # Body of the method
+        env['env'] = [[]] + env['env']
+        ## .var
+        self.emit.printout(self.emit.emitVAR(
+            frame.getNewIndex(), "this", ClassType(self.curr_struct.name),
+            frame.getStartLabel(), frame.getEndLabel(), frame))
+        env = reduce(lambda acc,e: self.visit(e,acc), ast.fun.params, env)
+        ## Code for the body of the method
+        self.emit.printout(self.emit.emitLABEL(frame.getStartLabel(), frame))
+        ### Case when the method is a constructor
+        if ast.receiver is None:
+            self.emit.printout(self.emit.emitREADVAR(
+                "this", ClassType(self.curr_struct.name), 0, frame))
+            self.emit.printout(self.emit.emitINVOKESPECIAL(frame))
+        self.visit(ast.fun.body, env)
+        if isinstance(ast.fun.retType, VoidType):
+            self.emit.printout(self.emit.emitRETURN(VoidType(), frame))
+        self.emit.printout(self.emit.emitLABEL(frame.getEndLabel(), frame))
+        
+        self.emit.printout(self.emit.emitENDMETHOD(frame))
+        frame.exitScope()
+        return o
+    
+    def visitPrototype(self, ast, o):
+        frame = Frame(ast.name, ast.retType)
+        self.emit.printout(self.emit.emitMETHOD(
+            ast.name, MType(ast.params, ast.retType), False, True, frame))
+        self.emit.printout(self.emit.emitENDMETHOD(frame))
+        return o
+    # --- Visit Declarations - END ---
+    
+    # --- Visit Expressions - START ---
     def visitFuncCall(self, ast, o):
         sym = next(filter(lambda x: x.name == ast.funName, self.functions), None)
         # Visit the arguments
@@ -243,32 +329,20 @@ class CodeGenerator(BaseVisitor,Utils):
         argsCode = [self.visit(x, env)[0] for x in ast.args]
         # Invoke the function
         invokeCode = self.emit.emitINVOKESTATIC(f"{sym.value.value}/{ast.funName}", sym.mtype, o['frame'])
+        code = argsCode + [invokeCode]
         if o.get('isStmt', False):
-            [self.emit.printout(x) for x in argsCode + [invokeCode]]
+            [self.emit.printout(x) for x in code]
             return o
         else: # FuncCall is expr
-            return "".join(argsCode + [invokeCode]), sym.mtype.rettype
-    
-    def visitBlock(self, ast, o):
-        env = o.copy()
-        env['env'] = [[]] + env['env']
-        env['frame'].enterScope(False)
-        self.emit.printout(self.emit.emitLABEL(env['frame'].getStartLabel(), env['frame']))
-        def blockReducer(env, ele):
-            if isinstance(ele, FuncCall):
-                env['isStmt'] = True
-            else:
-                env['isStmt'] = False
-            return self.visit(ele, env)
-        env = reduce(blockReducer, ast.member, env)
-        self.emit.printout(self.emit.emitLABEL(env['frame'].getEndLabel(), env['frame']))
-        env['frame'].exitScope()
-        return o
+            return "".join(code), sym.mtype.rettype
     
     def visitId(self, ast, o):
         sym = next(filter(lambda x: x.name == ast.name, 
                           [i for lst in o['env'] for i in lst]), 
                    None)
+        if sym is None: # "this" variable
+            return (self.emit.emitREADVAR("this", ClassType(""), 0, o['frame']), 
+                    ClassType(self.curr_struct.name))
         if isinstance(sym.value, Index):
             func = self.emit.emitWRITEVAR if o.get('isLeft', False) else self.emit.emitREADVAR
             return (func(ast.name, sym.mtype, sym.value.value, o['frame']), 
@@ -277,44 +351,122 @@ class CodeGenerator(BaseVisitor,Utils):
             func = self.emit.emitPUTSTATIC if o.get('isLeft', False) else self.emit.emitGETSTATIC     
             return (func(f"{self.className}/{sym.name}", sym.mtype, o['frame']), 
                     sym.mtype)
+            
+    def visitUnaryOp(self, ast, o):
+        if ast.op in ["+", "-"]:
+            bodyCode, typ = self.visit(ast.body, o)
+            negCode = self.emit.emitNEGOP(typ, o['frame']) if ast.op == "-" else ""
+            return bodyCode + negCode, typ
+        elif ast.op == "!":
+            bodyCode, typ = self.visit(ast.body, o)
+            notCode = self.emit.emitNOT(typ, o['frame'])
+            return bodyCode + notCode, typ
+          
+    def visitBinaryOp(self, ast, o):
+        leftCode, leftType = self.visit(ast.left, o)
+        rightCode, rightType = self.visit(ast.right, o)
+
+        retType = None
+        if ast.op in ["+", "-", "*", "/"]:
+            if ast.op in ["+", "-"]:
+                op = self.emit.emitADDOP
+            elif ast.op in ["*", "/"]:
+                op = self.emit.emitMULOP
+            
+            if type(leftType) != type(rightType):
+                if isinstance(leftType, IntType):
+                    leftCode += self.emit.emitI2F(o['frame'])
+                if isinstance(rightType, IntType):
+                    rightCode += self.emit.emitI2F(o['frame'])
+                retType = FloatType()
+            else:
+                retType = leftType
+            opCode = op(ast.op, retType, o['frame'])
+        elif ast.op == "%":
+            retType = IntType()
+            opCode = self.emit.emitMOD(o['frame'])
+        elif ast.op in ["==", "!=", "<", ">", "<=", ">="]:
+            retType = BoolType()
+            opCode = self.emit.emitREOP(ast.op, retType, o['frame'])
+        elif ast.op in ["&&", "||"]:
+            retType = BoolType()
+            if ast.op == "&&":
+                opCode = self.emit.emitANDOP(o['frame'])
+            else:
+                opCode = self.emit.emitOROP(o['frame'])
+        return leftCode + rightCode + opCode, retType
     
-    def visitAssign(self, ast, o):
-        # Initialize the variable if it hasn't been declared yet
-        if (isinstance(ast.lhs, Id) 
-            and not ast.lhs.name in [i.name for lst in o["env"] for i in lst]
-        ):
-            return self.visit(VarDecl(ast.lhs.name, None, ast.rhs))
+    def visitArrayCell(self, ast, o):
+        code = ""
+        # Code to get the array address
         env = o.copy()
-        if isinstance(ast.lhs, ArrayCell):
-            env['isLeft'] = True
-            lhsCode, lhsType = self.visit(ast.lhs, env)
-            env['isLeft'] = False
-            rhsCode, rhsType = self.visit(ast.rhs, env)
-        else:
-            env['isLeft'] = False
-            rhsCode, rhsType = self.visit(ast.rhs, env)            
-            env['isLeft'] = True
-            lhsCode, lhsType = self.visit(ast.lhs, env)        
+        env['isLeft'] = False
+        arrAddrCode, arrType = self.visit(ast.arr, env)
+        code += arrAddrCode
         
-        # Co-erce
-        if isinstance(lhsType, FloatType) and isinstance(rhsType, IntType):
-            rhsCode += self.emit.emitI2F(o['frame'])
-        # Print code
-        if isinstance(ast.lhs, ArrayCell):
-            self.emit.printout(lhsCode + rhsCode 
-                               + self.emit.emitASTORE(lhsType, o['frame']))
-        else:
-            self.emit.printout(rhsCode + lhsCode)
-        return o
+        for i, idx in enumerate(ast.idx):
+            idxCode, idxType = self.visit(idx, env)
+            code += idxCode
+            if i == len(ast.idx) - 1:
+                retType = None
+                if len(arrType.dimens) == 1:
+                    retType = arrType.eleType
+                else:
+                    retType = ArrayType(arrType.dimens[1:], arrType.eleType)
+                if not (o.get('isLeft', False)):
+                    code += self.emit.emitALOAD(retType, o['frame'])
+                return code, retType
+            else:
+                code += self.emit.emitALOAD(arrType, o['frame'])
+                arrType = ArrayType(arrType.dimens[1:], arrType.eleType)
+                
+    def visitFieldAccess(self, ast, o):
+        # receiverClass is ClassType object
+        receiverCode, receiverClass = self.visit(ast.receiver, o) 
+        # receiverType is StructType object
+        receiverType = self.lookup(receiverClass.name, self.structs, lambda x: x.name)
+        # elements:List[Tuple[str,Type]] in StructType
+        fieldType = self.lookup(ast.field, receiverType.elements, 
+                                lambda x: x[0])[1]
+        # Swap for LHS case
+        swapCode = self.emit.emitSWAP() if o.get('isLeft', False) else ""
+        # Code to put/get field
+        op = (self.emit.emitPUTFIELD if o.get('isLeft', False) 
+              else self.emit.emitGETFIELD)
+        fieldCode = op(f"{receiverClass.name}/{ast.field}", fieldType, o['frame'])
+        return receiverCode + swapCode +  fieldCode, fieldType
     
-    def visitReturn(self, ast, o):
-        typ = VoidType()
-        if ast.expr:
-            code, typ = self.visit(ast.expr, o)
-            self.emit.printout(code)
-        self.emit.printout(self.emit.emitRETURN(typ, o['frame']))
-        return o
+    def visitMethCall(self, ast, o):
+        # receiverClass is ClassType object
+        receiverCode, receiverClass = self.visit(ast.receiver, o) 
+        # receiverType is StructType/InterfaceType object
+        receiverType = self.lookup(receiverClass.name, self.structs + self.interfaces, 
+                                   lambda x: x.name)
+        # Create virtual env for visiting args of MethCall
+        env = o.copy()
+        env['isLeft'] = False
+        env['isStmt'] = False   
+        # Visit the arguments
+        argsCode = [self.visit(x, env)[0] for x in ast.args]
+        if isinstance(receiverType, StructType):
+            methDecl = self.lookup(ast.metName, receiverType.methods, lambda x: x.fun.name)
+            mtype = MType([x.parType for x in methDecl.fun.params], methDecl.fun.retType)
+            invokeCode = self.emit.emitINVOKEVIRTUAL(
+                f"{receiverClass.name}/{ast.metName}", mtype, o['frame'])
+        else: # isinstance(receiverType, InterfaceType)
+            prototype = self.lookup(ast.metName, receiverType.methods, lambda x: x.name)
+            mtype = MType(prototype.params, prototype.retType)
+            invokeCode = self.emit.emitINVOKEINTERFACE(
+                f"{receiverClass.name}/{ast.metName}", mtype, o['frame'])
+        code = [receiverCode] + argsCode + [invokeCode]
+        if o.get('isStmt', False):
+            [self.emit.printout(x) for x in code]
+            return o
+        else: # MethCall is expr
+            return "".join(code), mtype.rettype
+    # --- Visit Expressions - END ---
     
+    # --- Visit Literals - START ---
     def visitIntLiteral(self, ast, o):
         return self.emit.emitPUSHICONST(ast.value, o['frame']), IntType()
     
@@ -366,103 +518,63 @@ class CodeGenerator(BaseVisitor,Utils):
         code += "".join([reduceArray(ast.value, i, ["self.emit.emitDUP(o['frame'])"]) 
                          for i in range(len(ast.value))])
         return code, retType
-
-    def visitUnaryOp(self, ast, o):
-        if ast.op in ["+", "-"]:
-            bodyCode, typ = self.visit(ast.body, o)
-            negCode = self.emit.emitNEGOP(typ, o['frame']) if ast.op == "-" else ""
-            return bodyCode + negCode, typ
-        elif ast.op == "!":
-            bodyCode, typ = self.visit(ast.body, o)
-            notCode = self.emit.emitNOT(typ, o['frame'])
-            return bodyCode + notCode, typ
-      
-    def concatString(self, left, right, o):
-        stringBuilderType = ClassType("java/lang/StringBuilder")
-        code = ""
-        code += self.emit.emitNEW(stringBuilderType, o['frame'])
+    
+    def visitStructLiteral(self, ast, o):
+        code = self.emit.emitNEW(ClassType(ast.name), o['frame'])
         code += self.emit.emitDUP(o['frame'])
-        code += self.emit.emitINVOKESPECIAL(o['frame'], 
-                                            "java/lang/StringBuilder/<init>", 
-                                            MType([], VoidType()))
-        
-        code += self.visit(left, o)[0]
-        # invokevirtual java/lang/StringBuilder/append(Ljava/lang/String;)Ljava/lang/StringBuilder;
-        code += self.emit.emitINVOKEVIRTUAL("java/lang/StringBuilder/append", 
-                                            MType([StringType()], stringBuilderType), 
-                                            o['frame'])
-        
-        code += self.visit(right, o)[0]
-        # invokevirtual java/lang/StringBuilder/append(Ljava/lang/String;)Ljava/lang/StringBuilder;
-        code += self.emit.emitINVOKEVIRTUAL("java/lang/StringBuilder/append", 
-                                            MType([StringType()], stringBuilderType), 
-                                            o['frame'])
-        
-        # invokevirtual java/lang/StringBuilder/toString()Ljava/lang/String;
-        code += self.emit.emitINVOKEVIRTUAL("java/lang/StringBuilder/toString",
-                                            MType([], StringType()),
-                                            o['frame'])
-        return code, StringType()
-          
-    def visitBinaryOp(self, ast, o):
-        leftCode, leftType = self.visit(ast.left, o)
-        rightCode, rightType = self.visit(ast.right, o)
-        
-        def validateType(typ):
-            return isinstance(leftType, typ) and isinstance(rightType, typ)
-        retType = None
-        if ast.op in ["+", "-", "*", "/"]:
-            if ast.op in ["+", "-"]:
-                op = self.emit.emitADDOP
-            elif ast.op in ["*", "/"]:
-                op = self.emit.emitMULOP
-            
-            if type(leftType) != type(rightType):
-                if isinstance(leftType, IntType):
-                    leftCode += self.emit.emitI2F(o['frame'])
-                if isinstance(rightType, IntType):
-                    rightCode += self.emit.emitI2F(o['frame'])
-                retType = FloatType()
-            else:
-                retType = leftType
-            opCode = op(ast.op, retType, o['frame'])
-        elif ast.op == "%":
-            retType = IntType()
-            opCode = self.emit.emitMOD(o['frame'])
-        elif ast.op in ["==", "!=", "<", ">", "<=", ">="]:
-            retType = BoolType()
-            opCode = self.emit.emitREOP(ast.op, retType, o['frame'])
-        elif ast.op in ["&&", "||"]:
-            retType = BoolType()
-            if ast.op == "&&":
-                opCode = self.emit.emitANDOP(o['frame'])
-            else:
-                opCode = self.emit.emitOROP(o['frame'])
-        return leftCode + rightCode + opCode, retType
-            
-    def visitArrayCell(self, ast, o):
-        code = ""
-        # Code to get the array address
+
         env = o.copy()
         env['isLeft'] = False
-        arrAddrCode, arrType = self.visit(ast.arr, env)
-        code += arrAddrCode
+        env['isStmt'] = False
+        # Visit the expression of elements of the struct literal
+        visitedElements = [self.visit(ele[1], env) for ele in ast.elements]
+        code += "".join([ele[0] for ele in visitedElements])
+        code += self.emit.emitINVOKESPECIAL(
+            o['frame'], f"{ast.name}/<init>", 
+            MType([ele[1] for ele in visitedElements], VoidType()))
+        return code, ClassType(ast.name)
+    
+    def visitNilLiteral(self, ast, o):
+        return self.emit.emitACONST_NULL(o['frame']), ClassType("")
+    # -- Visit Literals - END ---
+                
+    # --- visit Statements - START ---
+    def visitAssign(self, ast, o):
+        # Initialize the variable if it hasn't been declared yet
+        if (isinstance(ast.lhs, Id) 
+            and not ast.lhs.name in [i.name for lst in o["env"] for i in lst]
+        ):
+            return self.visit(VarDecl(ast.lhs.name, None, ast.rhs))
+        env = o.copy()
+        if isinstance(ast.lhs, ArrayCell):
+            env['isLeft'] = True
+            lhsCode, lhsType = self.visit(ast.lhs, env)
+            env['isLeft'] = False
+            rhsCode, rhsType = self.visit(ast.rhs, env)
+        else:
+            env['isLeft'] = False
+            rhsCode, rhsType = self.visit(ast.rhs, env)            
+            env['isLeft'] = True
+            lhsCode, lhsType = self.visit(ast.lhs, env)        
         
-        for i, idx in enumerate(ast.idx):
-            idxCode, idxType = self.visit(idx, env)
-            code += idxCode
-            if i == len(ast.idx) - 1:
-                retType = None
-                if len(arrType.dimens) == 1:
-                    retType = arrType.eleType
-                else:
-                    retType = ArrayType(arrType.dimens[1:], arrType.eleType)
-                if not (o.get('isLeft', False)):
-                    code += self.emit.emitALOAD(retType, o['frame'])
-                return code, retType
-            else:
-                code += self.emit.emitALOAD(arrType, o['frame'])
-                arrType = ArrayType(arrType.dimens[1:], arrType.eleType)
+        # Co-erce
+        if isinstance(lhsType, FloatType) and isinstance(rhsType, IntType):
+            rhsCode += self.emit.emitI2F(o['frame'])
+        # Print code
+        if isinstance(ast.lhs, ArrayCell):
+            self.emit.printout(lhsCode + rhsCode 
+                               + self.emit.emitASTORE(lhsType, o['frame']))
+        else:
+            self.emit.printout(rhsCode + lhsCode)
+        return o
+    
+    def visitReturn(self, ast, o):
+        typ = VoidType()
+        if ast.expr:
+            code, typ = self.visit(ast.expr, o)
+            self.emit.printout(code)
+        self.emit.printout(self.emit.emitRETURN(typ, o['frame']))
+        return o
     
     def visitIf(self, ast, o):
         elseLabel = o['frame'].getNewLabel()
@@ -528,4 +640,103 @@ class CodeGenerator(BaseVisitor,Utils):
         self.emit.printout(self.emit.emitGOTO(
             str(o['frame'].getBreakLabel()), o['frame']))
         return o
+    # --- visit Statements - END ---
     
+    # --- visit Types - START ---
+    def _matchType(self, lhs, rhs, exact_same_type=True):
+        """
+        Compare two types
+        
+        :param type1: Type
+        :param type2: Type
+        :return: bool
+        """
+        if isinstance(rhs, StructType) and rhs.name == "":
+            if isinstance(lhs, (InterfaceType, StructType)):
+                return True
+        if not exact_same_type:
+            if isinstance(lhs, InterfaceType) and isinstance(rhs, StructType):
+                # the struct type implements all prototypes declared in the interface
+                for prototype in lhs.methods:
+                    method_decl = self.lookup(
+                        prototype.name, rhs.methods, lambda x: x.fun.name)
+                    if method_decl is None:
+                        return False
+                    if not self._matchType(prototype.retType, 
+                                          method_decl.fun.retType):
+                        return False
+                    if len(prototype.params) != len(method_decl.fun.params):
+                        return False
+                    if not all(self._matchType(pair[0], pair[1].parType) 
+                                for pair in zip(prototype.params, method_decl.fun.params)):
+                        return False
+                return True
+            if isinstance(lhs, FloatType) and isinstance(rhs, IntType):
+                return True
+        if (isinstance(lhs, (StructType, InterfaceType)) 
+            and isinstance(rhs, (StructType, InterfaceType))
+        ):
+            return lhs.name == rhs.name
+        if isinstance(lhs, ArrayType) and isinstance(rhs, ArrayType):
+            # Compare the length of dimensions
+            if len(lhs.dimens) != len(rhs.dimens):
+                return False
+            # Compare the size of each dimension
+            matchingDimens = all(
+                #!!! Hard code to compare the size of each dimension
+                # Assume the size of each dimension is an IntLit
+                (not isinstance(pair[0], IntLiteral) 
+                 or not isinstance(pair[1], IntLiteral)
+                 or int(pair[0].value) == (pair[1].value)) 
+                    for pair in zip(lhs.dimens, rhs.dimens)
+            )
+            return (
+                matchingDimens 
+                and ((
+                        not exact_same_type 
+                        and isinstance(lhs.eleType, FloatType) 
+                        and isinstance(rhs.eleType, IntType)
+                    )
+                    or self._matchType(lhs.eleType, rhs.eleType)
+                )
+            )
+        return type(lhs) == type(rhs)
+    
+    def visitStructType(self, ast, o):
+        self.emit.printout(self.emit.emitPROLOG(ast.name, "java.lang.Object"))
+        # .implements <interface_name>     
+        for interface in self.interfaces:
+            if self._matchType(interface, ast, False):
+                ast.implements.append(interface)
+                self.emit.printout(self.emit.emitIMPLEMENTS(interface.name))
+                
+        # .field 
+        [self.emit.printout(self.emit.emitATTRIBUTE(
+            ele[0], ele[1], False, False, None)) for ele in ast.elements]
+        
+        # .method
+        ## Method constructor with parameter
+        self.visit(
+            MethodDecl(None, 
+                       None, 
+                       FuncDecl("<init>", 
+                                [ParamDecl(ele[0], ele[1]) for ele in ast.elements],
+                                VoidType(), 
+                                Block([Assign(FieldAccess(Id(""), ele[0]), 
+                                              Id(ele[0])) 
+                                       for ele in ast.elements]))), 
+            o)
+        ## Method constructor without parameter
+        self.visit(
+            MethodDecl(None, 
+                       None, 
+                       FuncDecl("<init>", [], VoidType(), Block([]))), 
+            o)
+        
+        ## Method declarations
+        [self.visit(meth_decl, o) for meth_decl in ast.methods]
+    
+    def visitInterfaceType(self, ast, o):
+        self.emit.printout(self.emit.emitINTERFACE(ast.name, "java.lang.Object"))
+        [self.visit(prototype, o) for prototype in ast.methods]
+    # -- visit Types - END ---

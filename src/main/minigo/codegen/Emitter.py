@@ -27,7 +27,7 @@ class Emitter():
             return "["*len(inType.dimens) + self.getJVMType(inType.eleType)
         elif isinstance(inType, MType):
             return "(" + "".join(list(map(lambda x: self.getJVMType(x), inType.partype))) + ")" + self.getJVMType(inType.rettype)
-        elif isinstance(inType, cgen.ClassType):
+        elif isinstance(inType, (cgen.ClassType, Id)):
             return "L" + inType.name + ";"
         else:
             return str(type(inType))
@@ -47,7 +47,7 @@ class Emitter():
             return self.getFullType(inType.eleType) + "[]"*len(inType.dimens)
         elif isinstance(inType, MType):
             return #???
-        elif isinstance(inType, cgen.ClassType):
+        elif isinstance(inType, (cgen.ClassType, Id)):
             return inType.name
         else:
             return str(type(inType))
@@ -116,15 +116,15 @@ class Emitter():
         #..., arrayref, index, value -> ...
         
         frame.pop()
-        if type(in_) is IntType:
+        if isinstance(in_, IntType):
             return self.jvm.emitIALOAD()
-        if type(in_) is FloatType:
+        if isinstance(in_, FloatType):
             return self.jvm.emitFALOAD()
-        if type(in_) is BoolType:
+        if isinstance(in_, BoolType):
             return self.jvm.emitBALOAD()
-        if (type(in_) is cgen.ArrayType 
-            or type(in_) is cgen.ClassType 
-            or type(in_) is StringType
+        if (isinstance(in_, cgen.ArrayType)
+            or isinstance(in_, (cgen.ClassType, Id))
+            or isinstance(in_, StringType)
         ):
             return self.jvm.emitAALOAD()
         raise IllegalOperandException(str(in_))
@@ -137,13 +137,16 @@ class Emitter():
         frame.pop()
         frame.pop()
         frame.pop()
-        if type(in_) is IntType:
+        if isinstance(in_, IntType):
             return self.jvm.emitIASTORE()
-        if type(in_) is FloatType:
+        if isinstance(in_, FloatType):
             return self.jvm.emitFASTORE()
-        if type(in_) is BoolType:
+        if isinstance(in_, BoolType):
             return self.jvm.emitBASTORE()
-        if type(in_) is cgen.ArrayType or type(in_) is cgen.ClassType or type(in_) is StringType:
+        if (isinstance(in_, cgen.ArrayType) 
+            or isinstance(in_, (cgen.ClassType, Id))
+            or isinstance(in_, StringType)
+        ):
             return self.jvm.emitAASTORE()
         raise IllegalOperandException(str(in_))
 
@@ -172,13 +175,16 @@ class Emitter():
         #... -> ..., value
         
         frame.push()
-        if type(inType) is IntType:
+        if isinstance(inType, IntType):
             return self.jvm.emitILOAD(index)
-        if type(inType) is FloatType:
+        if isinstance(inType, FloatType):
             return self.jvm.emitFLOAD(index)
-        if type(inType) is BoolType:
+        if isinstance(inType, BoolType):
             return self.jvm.emitILOAD(index)
-        elif type(inType) is cgen.ArrayType or type(inType) is cgen.ClassType or type(inType) is StringType:
+        elif (isinstance(inType, cgen.ArrayType)
+              or isinstance(inType, (cgen.ClassType, Id))
+              or isinstance(inType, StringType)
+        ):
             return self.jvm.emitALOAD(index)
         else:
             raise IllegalOperandException(name)
@@ -208,13 +214,16 @@ class Emitter():
         
         frame.pop()
 
-        if type(inType) is IntType:
+        if isinstance(inType, IntType):
             return self.jvm.emitISTORE(index)
-        if type(inType) is FloatType:
+        if isinstance(inType, FloatType):
             return self.jvm.emitFSTORE(index)
-        if type(inType) is BoolType:
+        if isinstance(inType, BoolType):
             return self.jvm.emitISTORE(index)
-        elif type(inType) is cgen.ArrayType or type(inType) is cgen.ClassType or type(inType) is StringType:
+        elif (isinstance(inType, cgen.ArrayType)
+              or isinstance(inType, (cgen.ClassType, Id))
+              or isinstance(inType, StringType)
+        ):
             return self.jvm.emitASTORE(index)
         else:
             raise IllegalOperandException(name)
@@ -328,6 +337,18 @@ class Emitter():
         if not type(typ) is VoidType:
             frame.push()
         return self.jvm.emitINVOKEVIRTUAL(lexeme, self.getJVMType(in_))
+    
+    def emitINVOKEINTERFACE(self, lexeme, in_, frame):
+        #lexeme: String
+        #in_: Type
+        #frame: Frame
+
+        typ = in_
+        list(map(lambda x: frame.pop(), typ.partype))
+        frame.pop()
+        if not type(typ) is VoidType:
+            frame.push()
+        return self.jvm.emitINVOKEINTERFACE(lexeme, self.getJVMType(in_), 1+len(typ.partype))
 
     '''
     *   generate ineg, fneg.
@@ -507,13 +528,13 @@ class Emitter():
     *   @param isStatic <code>true</code> if the method is static; <code>false</code> otherwise.
     '''
 
-    def emitMETHOD(self, lexeme, in_, isStatic, frame):
+    def emitMETHOD(self, lexeme, in_, isStatic, isAbstract, frame):
         #lexeme: String
         #in_: Type
         #isStatic: Boolean
         #frame: Frame
 
-        return self.jvm.emitMETHOD(lexeme, self.getJVMType(in_), isStatic)
+        return self.jvm.emitMETHOD(lexeme, self.getJVMType(in_), isStatic, isAbstract)
 
     '''   generate the end directive for a function.
     '''
@@ -587,6 +608,9 @@ class Emitter():
 
         frame.push()
         return self.jvm.emitDUP()
+    
+    def emitSWAP(self):
+        return self.jvm.INDENT + "swap" + self.jvm.END
 
     def emitPOP(self, frame):
         #frame: Frame
@@ -621,7 +645,7 @@ class Emitter():
             frame.pop()
             return self.jvm.emitFRETURN()
         if (type(in_) is StringType 
-            or type(in_) is cgen.ClassType 
+            or isinstance(in_, (cgen.ClassType, Id))
             or type(in_) is cgen.ArrayType
         ):
             frame.pop()
@@ -631,7 +655,6 @@ class Emitter():
             return self.jvm.emitIRETURN()
         if type(in_) is VoidType:
             return self.jvm.emitRETURN()
-        # TODO: ClassType and ArrayType
         raise IllegalOperandException(in_)
 
     ''' generate code that represents a label	
@@ -668,7 +691,16 @@ class Emitter():
         result.append(self.jvm.emitCLASS("public " + name))
         result.append(self.jvm.emitSUPER("java/land/Object" if parent == "" else parent))
         return ''.join(result)
-
+    
+    def emitINTERFACE(self, name, parent):
+        #name: String
+        #parent: String
+        
+        result = list()
+        result.append(self.jvm.emitCLASS("public interface abstract " + name))
+        result.append(self.jvm.emitSUPER("java/land/Object" if parent == "" else parent))
+        return ''.join(result)
+    
     def emitLIMITSTACK(self, num):
         #num: Int
 
@@ -678,6 +710,13 @@ class Emitter():
         #num: Int
 
         return self.jvm.emitLIMITLOCAL(num)
+    
+    def emitIMPLEMENTS(self, name):
+        """
+        Args:
+        - name(String): The name of the interface.
+        """
+        return self.jvm.emitIMPLEMENTS(name)
 
     def emitEPILOG(self):
         file = open(self.filename, "w")
@@ -689,7 +728,7 @@ class Emitter():
         #frame: Frame
 
         frame.push()
-        if isinstance(in_, cgen.ClassType):
+        if isinstance(in_, (cgen.ClassType, Id)):
             return self.jvm.emitNEW(self.getFullType(in_))
         raise IllegalOperandException(in_)
         
@@ -698,7 +737,7 @@ class Emitter():
         Args:
         - ele_typ(Type): Array's element type.
         """
-        if isinstance(ele_typ, (cgen.ArrayType, cgen.ClassType, StringType)):
+        if isinstance(ele_typ, (cgen.ArrayType, cgen.ClassType, Id, StringType)):
             return self.jvm.emitANEWARRAY(self.getFullType(ele_typ))
         return self.jvm.emitNEWARRAY(self.getFullType(ele_typ))
 
@@ -718,6 +757,13 @@ class Emitter():
         """
         frame.push()
         return self.jvm.emitDUP()
+    
+    def emitACONST_NULL(self, frame):
+        """
+        Generate code to push a null reference onto the operand stack.
+        """
+        frame.push()
+        return self.jvm.emitACONST_NULL()
 
     ''' print out the code to screen
     *   @param in the code to be printed out
