@@ -171,8 +171,6 @@ class CodeGenerator(BaseVisitor,Utils):
                 typ.dimens,
                 typ.eleType,
                 []
-                # init_list(list(map(lambda x: x.value, typ.dimens)), 
-                #           self._initValue(typ.eleType)) #???
             )
         elif isinstance(typ, (ClassType, Id)):
             return StructLiteral(typ.name, [])
@@ -337,6 +335,7 @@ class CodeGenerator(BaseVisitor,Utils):
                           [i for lst in o['env'] for i in lst]), 
                    None)
         if sym is None: # "this" variable
+            # "this" is only used as RHS
             return (self.emit.emitREADVAR("this", Id(""), 0, o['frame']), 
                     Id(self.curr_struct.name))
         if isinstance(sym.value, Index):
@@ -550,7 +549,7 @@ class CodeGenerator(BaseVisitor,Utils):
             lhsCode, lhsType = self.visit(ast.lhs, env)
             env['isLeft'] = False
             rhsCode, rhsType = self.visit(ast.rhs, env)
-        else:
+        else: # Include FieldAccess case
             env['isLeft'] = False
             rhsCode, rhsType = self.visit(ast.rhs, env)            
             env['isLeft'] = True
