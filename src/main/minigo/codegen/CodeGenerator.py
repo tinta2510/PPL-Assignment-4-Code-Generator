@@ -168,7 +168,7 @@ class CodeGenerator(BaseVisitor,Utils):
             return BooleanLiteral(True)
         elif isinstance(typ, StringType):
             return StringLiteral('""')
-        elif isinstance(typ, ArrayType): #??? Init Array
+        elif isinstance(typ, ArrayType): 
             return ArrayLiteral(
                 typ.dimens,
                 typ.eleType,
@@ -525,9 +525,17 @@ class CodeGenerator(BaseVisitor,Utils):
         env = o.copy()
         env['isLeft'] = False
         env['isStmt'] = False
+        
+        # Find the struct declaration
+        structType = self.lookup(ast.name, self.structs, lambda x: x.name)
+        # Initialize non-initialized elements
+        def initElement(ele):
+            if ele[0] in [i[0] for i in ast.elements]:
+                return self.lookup(ele[0], ast.elements, lambda x: x[0])
+            return ele[0], self._initValue(ele[1])
+        initedElements = [initElement(ele) for ele in structType.elements]
         # Visit the expression of elements of the struct literal
-        # TODO: Initialize non-initialized elements
-        visitedElements = [self.visit(ele[1], env) for ele in ast.elements]
+        visitedElements = [self.visit(ele[1], env) for ele in initedElements]
         code += "".join([ele[0] for ele in visitedElements])
         code += self.emit.emitINVOKESPECIAL(
             o['frame'], f"{ast.name}/<init>", 
@@ -716,15 +724,16 @@ class CodeGenerator(BaseVisitor,Utils):
         
         # .method
         ## Method constructor with parameter
-        self.visit(
-            MethodDecl(None, None, 
-                       FuncDecl("<init>", 
-                                [ParamDecl(ele[0], ele[1]) for ele in ast.elements],
-                                VoidType(), 
-                                Block([Assign(FieldAccess(Id(""), ele[0]), 
-                                              Id(ele[0])) 
-                                       for ele in ast.elements]))), 
-            o)
+        if len(ast.elements) > 0:
+            self.visit(
+                MethodDecl(None, None, 
+                        FuncDecl("<init>", 
+                                    [ParamDecl(ele[0], ele[1]) for ele in ast.elements],
+                                    VoidType(), 
+                                    Block([Assign(FieldAccess(Id(""), ele[0]), 
+                                                Id(ele[0])) 
+                                        for ele in ast.elements]))), 
+                o)
         ## Method constructor without parameter
         self.visit(
             MethodDecl(None, None, 
