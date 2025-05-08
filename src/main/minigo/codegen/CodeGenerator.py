@@ -528,7 +528,7 @@ class CodeGenerator(BaseVisitor,Utils):
         
         # Find the struct declaration
         structType = self.lookup(ast.name, self.structs, lambda x: x.name)
-        # Initialize non-initialized elements
+        # Initialize non-initialized elements and sort the order of elements
         def initElement(ele):
             if ele[0] in [i[0] for i in ast.elements]:
                 return self.lookup(ele[0], ast.elements, lambda x: x[0])
