@@ -356,7 +356,35 @@ func main() {
         expect = """true\nfalse\ntrue\ntrue\ntrue\nfalse\n"""
         self.assertTrue(TestCodeGen.test(input,expect,528))
         
-    def test_141(self):
+    def test_529(self):
+        input = """
+var a float = 3;
+func main() {
+    putFloatLn(a)
+    var a float = 4;
+    putFloatLn(a)
+    a := 2
+    putFloat(a)
+}
+        """
+        expect = """3.0\n4.0\n2.0"""
+        self.assertTrue(TestCodeGen.test(input,expect,529))
+
+    def test_530(self):
+        input = """
+
+    func main() {
+        var f = true;
+        var g boolean;
+
+        putBoolLn(f)
+        putBool(g)
+    }   
+    """
+        expect = """true\nfalse"""
+        self.assertTrue(TestCodeGen.test(input,expect,530))
+                        
+    def test_531(self):
         input = """
 type Course interface {study();}
 type PPL3 struct {number int;}
@@ -368,9 +396,9 @@ func main(){
     a.study()
 }
         """
-        self.assertTrue(TestCodeGen.test(input, "10\n10", inspect.stack()[0].function))
+        self.assertTrue(TestCodeGen.test(input, "10\n10", 531))
 
-    def test_142(self):
+    def test_532(self):
         input = """
 type Course interface {study();}
 type PPL3 struct {number int;}
@@ -382,9 +410,9 @@ func main(){
     a.study()
 }
         """
-        self.assertTrue(TestCodeGen.test(input, "10", inspect.stack()[0].function))
+        self.assertTrue(TestCodeGen.test(input, "10", 532))
 
-    def test_143(self):
+    def test_533(self):
         input = """
 type PPL3 struct {number int;}
 
@@ -393,9 +421,9 @@ func main(){
     putInt(a.number)
 }
         """
-        self.assertTrue(TestCodeGen.test(input, "10", inspect.stack()[0].function))
+        self.assertTrue(TestCodeGen.test(input, "10", 533))
 
-    def test_144(self):
+    def test_534(self):
         input = """
 type PPL3 struct {number int;}
 
@@ -405,9 +433,9 @@ func main(){
     putInt(a.number)
 }
         """
-        self.assertTrue(TestCodeGen.test(input, "10", inspect.stack()[0].function))
+        self.assertTrue(TestCodeGen.test(input, "10", 534))
 
-    def test_145(self):
+    def test_535(self):
         input = """
 type PPL2 struct {number int;}
 type PPL3 struct {number int; ppl PPL2;}
@@ -418,9 +446,9 @@ func main(){
    putInt(a.ppl.number)
 }
         """
-        self.assertTrue(TestCodeGen.test(input, "10", inspect.stack()[0].function))
+        self.assertTrue(TestCodeGen.test(input, "10", 535)) 
 
-    def test_146(self):
+    def test_536(self):
         input = """
 type PPL2 struct {number int;}
 type PPL3 struct {number int; ppl PPL2;}
@@ -432,9 +460,9 @@ func main(){
    putInt(a.ppl.number)
 }
         """
-        self.assertTrue(TestCodeGen.test(input, "100", inspect.stack()[0].function))        
+        self.assertTrue(TestCodeGen.test(input, "100", 536))    
 
-    def test_147(self):
+    def test_537(self):
         input = """
 type Study interface { study(); }
 type Play interface { play(); }
@@ -450,10 +478,10 @@ func main() {
     a.play()
 }
         """
-        self.assertTrue(TestCodeGen.test(input, "16", inspect.stack()[0].function))
+        self.assertTrue(TestCodeGen.test(input, "16", 537))
 
 
-    def test_148(self):
+    def test_538(self):
         input = """
 type Study interface { study(); }
 type Play interface { play(); }
@@ -471,7 +499,38 @@ func main() {
     c.play()
 }
         """
-        self.assertTrue(TestCodeGen.test(input, "16", inspect.stack()[0].function))
+        self.assertTrue(TestCodeGen.test(input, "16", 538))
+        
+    def test_539(self):
+        input = """
+
+func main() {
+    var i int;
+    for i := 0; i < 5; i += 1 {
+        if (i % 2 == 0) {
+            continue;
+        }
+        putInt(i);
+    }
+    putInt(i);
+}
+        
+        """
+        expect = """135"""
+        self.assertTrue(TestCodeGen.test(input,expect,539))
+
+    def test_540(self):
+        input = """
+func main() {
+    var i int = 10;
+    for var i int = 0; i < 2; i += 1 {
+        putIntLn(i)
+    }
+    putInt(i)
+}
+        """
+        expect = """0\n1\n10"""
+        self.assertTrue(TestCodeGen.test(input,expect,540))
 
     def test_149(self):
         input = """

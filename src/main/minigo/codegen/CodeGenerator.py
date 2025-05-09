@@ -165,7 +165,7 @@ class CodeGenerator(BaseVisitor,Utils):
         elif isinstance(typ, FloatType):
             return FloatLiteral(0.0)
         elif isinstance(typ, BoolType):
-            return BooleanLiteral(True)
+            return BooleanLiteral(False)
         elif isinstance(typ, StringType):
             return StringLiteral('""')
         elif isinstance(typ, ArrayType): 
@@ -239,7 +239,7 @@ class CodeGenerator(BaseVisitor,Utils):
             self.emit.printout(self.emit.emitVAR(
                 index, ast.varName, ast.varType, frame.getStartLabel(), frame.getEndLabel(), frame))  
             if isinstance(ast.varType, FloatType) and isinstance(varInitType, IntType):
-                ast.varInit = FloatLiteral(float(ast.varInit.value))
+                varInitCode += self.emit.emitI2F(frame)
             if ast.varInit:
                 self.emit.printout(varInitCode)
                 self.emit.printout(self.emit.emitWRITEVAR(ast.varName, ast.varType, index, frame))
@@ -260,7 +260,8 @@ class CodeGenerator(BaseVisitor,Utils):
         env = o.copy()
         env['env'] = [[]] + env['env']
         env['frame'].enterScope(False)
-        self.emit.printout(self.emit.emitLABEL(env['frame'].getStartLabel(), env['frame']))
+        self.emit.printout(self.emit.emitLABEL(
+            env['frame'].getStartLabel(), env['frame']))
         def visitStmt(stmt):
             if isinstance(stmt, (FuncCall, MethCall)):
                 env['isStmt'] = True
@@ -268,7 +269,8 @@ class CodeGenerator(BaseVisitor,Utils):
                 env['isStmt'] = False
             self.visit(stmt, env)
         [visitStmt(stmt) for stmt in ast.member]
-        self.emit.printout(self.emit.emitLABEL(env['frame'].getEndLabel(), env['frame']))
+        self.emit.printout(self.emit.emitLABEL(
+            env['frame'].getEndLabel(), env['frame']))
         env['frame'].exitScope()
         return o
     
@@ -629,10 +631,40 @@ class CodeGenerator(BaseVisitor,Utils):
         return o
     
     def visitForStep(self, ast, o):
-        self.visit(
-            Block([ast.init, 
-                   ForBasic(ast.cond, Block(ast.loop.member+[ast.upda]))]), 
-            o)
+        env = o.copy()
+        env['env'] = [[]] + env['env']
+        env['frame'].enterScope(False)
+        self.emit.printout(self.emit.emitLABEL(
+            env['frame'].getStartLabel(), env['frame']))
+        env['frame'].enterLoop()
+        loopLabel = env['frame'].getNewLabel()
+        continueLabel = env['frame'].getContinueLabel()
+        exitLabel = env['frame'].getBreakLabel()
+        
+        # Init code
+        self.visit(ast.init, env)
+        # LOOP LABEL
+        self.emit.printout(self.emit.emitLABEL(loopLabel, env['frame']))
+        # Condition code
+        condCode, condType = self.visit(ast.cond, env)
+        self.emit.printout(condCode)
+        # If condition is false, exit the loop
+        self.emit.printout(self.emit.emitIFFALSE(exitLabel, env['frame']))
+        # Body code
+        self.visit(ast.loop, env)
+        # CONTINUE label
+        self.emit.printout(self.emit.emitLABEL(continueLabel, env['frame']))
+        # Update counter code
+        self.visit(ast.upda, env)
+        # GOTO loopLabel
+        self.emit.printout(self.emit.emitGOTO(str(loopLabel), env['frame']))
+        # Exit label
+        self.emit.printout(self.emit.emitLABEL(exitLabel, env['frame']))
+        
+        env['frame'].exitLoop()
+        self.emit.printout(self.emit.emitLABEL(
+            env['frame'].getEndLabel(), env['frame']))
+        env['frame'].exitScope()
         return o
     
     def visitForEach(self, ast, o):
