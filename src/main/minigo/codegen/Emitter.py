@@ -471,23 +471,62 @@ class Emitter():
         result = list()
         labelF = frame.getNewLabel()
         labelO = frame.getNewLabel()
-
+        
         frame.pop()
         frame.pop()
-        if op == ">":
-            result.append(self.jvm.emitIFICMPLE(labelF))
-        elif op == ">=":
-            result.append(self.jvm.emitIFICMPLT(labelF))
-        elif op == "<":
-            result.append(self.jvm.emitIFICMPGE(labelF))
-        elif op == "<=":
-            result.append(self.jvm.emitIFICMPGT(labelF))
-        elif op == "!=":
-            result.append(self.jvm.emitIFICMPEQ(labelF))
-        elif op == "==":
-            result.append(self.jvm.emitIFICMPNE(labelF))
+        if isinstance(in_, IntType):
+            if op == ">":
+                result.append(self.jvm.emitIFICMPLE(labelF))
+            elif op == ">=":
+                result.append(self.jvm.emitIFICMPLT(labelF))
+            elif op == "<":
+                result.append(self.jvm.emitIFICMPGE(labelF))
+            elif op == "<=":
+                result.append(self.jvm.emitIFICMPGT(labelF))
+            elif op == "!=":
+                result.append(self.jvm.emitIFICMPEQ(labelF))
+            elif op == "==":
+                result.append(self.jvm.emitIFICMPNE(labelF))
+        elif isinstance(in_, FloatType):
+            result.append(self.jvm.emitFCMPL())
+            if op == ">":
+                result.append(self.jvm.emitIFLE(labelF))
+            elif op == ">=":
+                result.append(self.jvm.emitIFLT(labelF))
+            elif op == "<":
+                result.append(self.jvm.emitIFGE(labelF))
+            elif op == "<=":
+                result.append(self.jvm.emitIFGT(labelF))
+            elif op == "!=":
+                result.append(self.jvm.emitIFEQ(labelF))
+            elif op == "==":
+                result.append(self.jvm.emitIFNE(labelF))
+        elif isinstance(in_, StringType):
+            #!!! Cannot compare two string literal directly
+            if op in ["==", "!="]:
+                result.append(self.jvm.emitINVOKEVIRTUAL(
+                    "java/lang/String/equals", 
+                    "(Ljava/lang/Object;)Z"))
+                    # self.getJVMType(MType([StringType()], BoolType()))))
+                if op == "==":
+                    result.append(self.jvm.emitIFEQ(labelF))
+                else:
+                    result.append(self.jvm.emitIFNE(labelF))
+            elif op in [">", "<", ">=", "<="]:
+                result.append(self.jvm.emitINVOKEVIRTUAL(
+                    "java/lang/String/compareTo",
+                    # "(Ljava/lang/Object;)Z"))
+                    self.getJVMType(MType([StringType()], IntType()))))
+                if op == ">":
+                    result.append(self.jvm.emitIFLE(labelF))
+                elif op == ">=":
+                    result.append(self.jvm.emitIFLT(labelF))
+                elif op == "<":
+                    result.append(self.jvm.emitIFGE(labelF))
+                elif op == "<=":
+                    result.append(self.jvm.emitIFGT(labelF))
         result.append(self.emitPUSHCONST("1", IntType(), frame))
-        frame.pop()
+        frame.pop() # PUSH 1/0 only so pop 1 value on the stack
         result.append(self.emitGOTO(labelO, frame))
         result.append(self.emitLABEL(labelF, frame))
         result.append(self.emitPUSHCONST("0", IntType(), frame))

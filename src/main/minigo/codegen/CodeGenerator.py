@@ -384,7 +384,7 @@ class CodeGenerator(BaseVisitor,Utils):
             opCode = self.emit.emitMOD(o['frame'])
         elif ast.op in ["==", "!=", "<", ">", "<=", ">="]:
             retType = BoolType()
-            opCode = self.emit.emitREOP(ast.op, retType, o['frame'])
+            opCode = self.emit.emitREOP(ast.op, leftType, o['frame'])
         elif ast.op in ["&&", "||"]:
             retType = BoolType()
             if ast.op == "&&":

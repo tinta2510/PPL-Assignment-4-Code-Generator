@@ -341,6 +341,21 @@ func main() {putInt(5);};
         expect = "5"
         self.assertTrue(TestCodeGen.test(input, expect, 527))
         
+    def test_528(self):
+        input = """
+
+func main() {
+    putBoolLn(5.0 > 2.0)
+    putBoolLn(5.0 < 2.0)
+    putBoolLn(5.0 <= 5.0)
+    putBoolLn(5.0 >= 5.0)
+    putBoolLn(5.0 == 5.0)
+    putBoolLn(5.0 != 5.0)
+}
+        """
+        expect = """true\nfalse\ntrue\ntrue\ntrue\nfalse\n"""
+        self.assertTrue(TestCodeGen.test(input,expect,528))
+        
     def test_141(self):
         input = """
 type Course interface {study();}
