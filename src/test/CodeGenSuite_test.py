@@ -531,6 +531,25 @@ func main() {
         """
         expect = """0\n1\n10"""
         self.assertTrue(TestCodeGen.test(input,expect,540))
+        
+    def test_541(self):
+        input = """
+func foo(){
+    a := 5;
+    putInt(a)
+}
+
+var a int = 10
+        
+func main(){
+    foo()
+    putInt(a)
+}
+        
+    
+        """
+        expect = """510"""
+        self.assertTrue(TestCodeGen.test(input,expect,541))
 
     def test_149(self):
         input = """

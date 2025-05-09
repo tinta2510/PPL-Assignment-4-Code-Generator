@@ -6,17 +6,19 @@ from AST import *
 class CheckCodeGenSuite(unittest.TestCase):
     def test_int_literal(self):
         input = """
-
-type Course interface {study();}
-type PPL3 struct {number int;}
-func (p PPL3) study() {putInt(p.number);}
-
-func main(){
-    var a PPL3 = PPL3 {number: 10}
-    putIntLn(a.number)
-    a.study()
+func foo(){
+    a := 5;
+    putInt(a)
 }
+
+var a int = 10
+        
+func main(){
+    foo()
+    putInt(a)
+}
+        
     
         """
-        expect = """10\n10"""
+        expect = """510"""
         self.assertTrue(TestCodeGen.test(input,expect,501))

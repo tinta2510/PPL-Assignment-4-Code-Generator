@@ -140,11 +140,19 @@ class CodeGenerator(BaseVisitor,Utils):
         env['env'] = [c]
         self.emit.printout(self.emit.emitPROLOG(self.className, "java.lang.Object"))
         # Body of the program
-        env = reduce(
-            lambda acc, ele: self.visit(ele, acc), 
-            list(filter(lambda x: isinstance(x, (VarDecl, ConstDecl)), ast.decl))
-                + list(filter(lambda x: isinstance(x, FuncDecl), ast.decl)), 
-            env)
+        reduce(lambda acc, ele: self.visit(ele, acc), 
+               list(filter(lambda x: isinstance(x, (VarDecl, ConstDecl)), ast.decl)), 
+               env)
+        globals = env['env'][0]
+        env['env'] = [[]]
+        for decl in ast.decl:
+            if isinstance(decl, VarDecl):
+                env['env'][0].append(self.lookup(decl.varName, globals, lambda x: x.name))
+            elif isinstance(decl, ConstDecl):
+                env['env'][0].append(self.lookup(decl.conName, globals, lambda x: x.name))
+            elif isinstance(decl, FuncDecl):
+                self.visit(decl, env)
+                
         self.emitObjectInit()
         self.emitObjectClassInit(ast, env)
         
@@ -747,7 +755,7 @@ class CodeGenerator(BaseVisitor,Utils):
         # .implements <interface_name>     
         for interface in self.interfaces:
             if self._matchType(interface, ast, False):
-                ast.implements.append(interface)
+                # ast.implements.append(interface)
                 self.emit.printout(self.emit.emitIMPLEMENTS(interface.name))
                 
         # .field 
@@ -759,12 +767,12 @@ class CodeGenerator(BaseVisitor,Utils):
         if len(ast.elements) > 0:
             self.visit(
                 MethodDecl(None, None, 
-                        FuncDecl("<init>", 
+                           FuncDecl("<init>", 
                                     [ParamDecl(ele[0], ele[1]) for ele in ast.elements],
                                     VoidType(), 
                                     Block([Assign(FieldAccess(Id(""), ele[0]), 
-                                                Id(ele[0])) 
-                                        for ele in ast.elements]))), 
+                                                  Id(ele[0])) 
+                                           for ele in ast.elements]))), 
                 o)
         ## Method constructor without parameter
         self.visit(
